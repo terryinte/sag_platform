@@ -24,38 +24,54 @@ from analysis_engine.scoring.seo import score_seo
 from analysis_engine.scoring.website_audit import score_website_audit
 
 
+def _load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid JSON in {path}: {exc}") from exc
+
+
 def _load_seo_input(path: Path | None, domain: str) -> SeoInput:
     if path is None:
         return SeoInput(domain=domain)
-    data = json.loads(path.read_text())
-    return SeoInput(
-        domain=domain,
-        keyword_rankings=[KeywordRanking(**ranking) for ranking in data.get("keyword_rankings", [])],
-        indexed_pages_count=data.get("indexed_pages_count"),
-        total_pages_count=data.get("total_pages_count"),
-    )
+    data = _load_json(path)
+    try:
+        return SeoInput(
+            domain=domain,
+            keyword_rankings=[KeywordRanking(**ranking) for ranking in data.get("keyword_rankings", [])],
+            indexed_pages_count=data.get("indexed_pages_count"),
+            total_pages_count=data.get("total_pages_count"),
+        )
+    except TypeError as exc:
+        raise click.ClickException(f"Invalid SEO data in {path}: {exc}") from exc
 
 
 def _load_aeo_input(path: Path | None, domain: str) -> AeoInput:
     if path is None:
         return AeoInput(domain=domain)
-    data = json.loads(path.read_text())
-    return AeoInput(
-        domain=domain,
-        snippet_hits=[FeaturedSnippetHit(**hit) for hit in data.get("snippet_hits", [])],
-        total_keywords_checked=data.get("total_keywords_checked", 0),
-    )
+    data = _load_json(path)
+    try:
+        return AeoInput(
+            domain=domain,
+            snippet_hits=[FeaturedSnippetHit(**hit) for hit in data.get("snippet_hits", [])],
+            total_keywords_checked=data.get("total_keywords_checked", 0),
+        )
+    except TypeError as exc:
+        raise click.ClickException(f"Invalid AEO data in {path}: {exc}") from exc
 
 
 def _load_geo_input(path: Path | None, brand_name: str, domain: str) -> GeoInput:
     if path is None:
         return GeoInput(brand_name=brand_name, domain=domain)
-    data = json.loads(path.read_text())
-    return GeoInput(
-        brand_name=brand_name,
-        domain=domain,
-        mention_results=[BrandMentionResult(**mention) for mention in data.get("mention_results", [])],
-    )
+    data = _load_json(path)
+    try:
+        return GeoInput(
+            brand_name=brand_name,
+            domain=domain,
+            mention_results=[BrandMentionResult(**mention) for mention in data.get("mention_results", [])],
+        )
+    except TypeError as exc:
+        raise click.ClickException(f"Invalid GEO data in {path}: {exc}") from exc
 
 
 def _report_to_dict(report: CompositeReport) -> dict:

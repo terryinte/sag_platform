@@ -41,7 +41,7 @@ def _ranking_score(seo_input: SeoInput) -> float | None:
 
 
 def _indexation_score(seo_input: SeoInput) -> float | None:
-    if not seo_input.indexed_pages_count or not seo_input.total_pages_count:
+    if seo_input.indexed_pages_count is None or not seo_input.total_pages_count:
         return None
     ratio = seo_input.indexed_pages_count / seo_input.total_pages_count
     return min(ratio, 1.0) * 100.0

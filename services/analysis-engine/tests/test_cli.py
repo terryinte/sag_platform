@@ -119,3 +119,59 @@ def test_analyze_cli_reads_aeo_and_geo_data_files(monkeypatch, tmp_path):
     output = json.loads(result.output)
     assert output["dimensions"]["aeo"]["score"] == 100.0
     assert output["dimensions"]["geo"]["score"] == 100.0
+
+
+def test_analyze_cli_reports_clean_error_on_invalid_json(monkeypatch, tmp_path):
+    _patch_website_audit(monkeypatch)
+    bad_file = tmp_path / "seo.json"
+    bad_file.write_text("not valid json{")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        analyze,
+        [
+            "--domain",
+            "example.com",
+            "--url",
+            "https://example.com",
+            "--brand-name",
+            "Acme",
+            "--seo-data",
+            str(bad_file),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, json.JSONDecodeError)
+
+
+def test_analyze_cli_reports_clean_error_on_unexpected_field(monkeypatch, tmp_path):
+    _patch_website_audit(monkeypatch)
+    bad_file = tmp_path / "seo.json"
+    bad_file.write_text(
+        json.dumps(
+            {
+                "keyword_rankings": [
+                    {"keyword": "widgets", "engine": "google", "position": 1, "extra_field": "oops"}
+                ]
+            }
+        )
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        analyze,
+        [
+            "--domain",
+            "example.com",
+            "--url",
+            "https://example.com",
+            "--brand-name",
+            "Acme",
+            "--seo-data",
+            str(bad_file),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, TypeError)
