@@ -54,3 +54,20 @@ def test_score_aeo_detail_counts_hit_types():
     assert result.detail["featured_snippet_hits"] == 1
     assert result.detail["paa_hits"] == 1
     assert result.detail["total_keywords_checked"] == 3
+
+
+def test_score_aeo_caps_at_100_when_hits_exceed_total_keywords():
+    # Defensive case: more snippet hits reported than total_keywords_checked
+    # (e.g. duplicate/overlapping hits) must not push the score above 100.
+    aeo_input = AeoInput(
+        domain="example.com",
+        total_keywords_checked=2,
+        snippet_hits=[
+            FeaturedSnippetHit(keyword="a", engine="google", snippet_type="featured_snippet"),
+            FeaturedSnippetHit(keyword="a", engine="google", snippet_type="paa"),
+            FeaturedSnippetHit(keyword="b", engine="google", snippet_type="featured_snippet"),
+            FeaturedSnippetHit(keyword="b", engine="google", snippet_type="paa"),
+        ],
+    )
+    result = score_aeo(aeo_input)
+    assert result.score == 100.0
