@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from api.models import AnalyzeRequest, AnalyzeResponse, CollectRequest, CollectResponse
 from api.services import analyze_service, collect_service
+from api.ui import render_usage_page
 
 app = FastAPI(title="SAG API")
 
@@ -12,6 +13,12 @@ app = FastAPI(title="SAG API")
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(_: Request, exc: RuntimeError) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/ui", response_class=HTMLResponse)
+def usage_page() -> str:
+    return render_usage_page()
 
 
 @app.post("/collect", response_model=CollectResponse)
