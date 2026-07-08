@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-collectors"
+version = "0.1.0"
+description = "Data collection layer for the SAG diagnostic platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1,<9.0",
+    "httpx>=0.27,<1.0",
+    "analysis-engine @ file:///Users/terry/work/dev_env/copilot-worktrees/sag_platform/terry198411-urban-chainsaw/services/analysis-engine",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+]
+
+[project.scripts]
+data-collectors = "data_collectors.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../analysis-engine/src"]
