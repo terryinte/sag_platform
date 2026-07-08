@@ -59,3 +59,23 @@ def test_collect_route_rejects_invalid_payload():
     client = TestClient(app)
     response = client.post("/collect", json={"domain": "example.com"})
     assert response.status_code == 422
+
+
+def test_collect_route_returns_clear_500_on_runtime_error(monkeypatch):
+    monkeypatch.setattr(
+        "api.main.collect_service",
+        lambda request: (_ for _ in ()).throw(RuntimeError("Missing required environment variables")),
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/collect",
+        json={
+            "domain": "example.com",
+            "url": "https://example.com",
+            "brand_name": "Acme",
+            "keywords": [{"keyword": "best crm", "engine": "google"}],
+            "geo_queries": [{"query": "best crm for factories", "engine_hint": "global"}],
+        },
+    )
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Missing required environment variables"
