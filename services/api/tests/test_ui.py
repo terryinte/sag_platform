@@ -12,6 +12,9 @@ def test_homepage_serves_usage_page():
     assert "SAG API Console" in response.text
     assert "/collect" in response.text
     assert "/analyze" in response.text
+    assert "DATAFORSEO_LOGIN" in response.text
+    assert "OPENROUTER_API_KEY" in response.text
+    assert "QIANFAN_ACCESS_KEY" in response.text
 
 
 def test_ui_alias_serves_same_usage_page():

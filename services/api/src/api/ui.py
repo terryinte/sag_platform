@@ -267,6 +267,28 @@ def render_usage_page() -> str:
                 line-height: 1.6;
               }
 
+              .config-box {
+                margin-top: 18px;
+                padding: 16px;
+                border-radius: 18px;
+                border: 1px solid rgba(21, 109, 122, 0.16);
+                background: rgba(21, 109, 122, 0.06);
+              }
+
+              .config-box h3 {
+                margin: 0 0 8px;
+                font-size: 14px;
+                letter-spacing: -0.01em;
+              }
+
+              .config-box ul {
+                margin: 0;
+                padding-left: 18px;
+                color: var(--muted);
+                font-size: 13px;
+                line-height: 1.6;
+              }
+
               .result-head {
                 display: flex;
                 justify-content: space-between;
@@ -393,13 +415,17 @@ def render_usage_page() -> str:
                     <button class="btn secondary" data-action="collect">Collect</button>
                     <button class="btn primary" data-action="analyze">Analyze</button>
                   </div>
+                  <div class="config-box">
+                    <h3>配置说明</h3>
+                    <ul>
+                      <li>服务启动前设置环境变量，不在页面里输入 key。</li>
+                      <li><code>DATAFORSEO_LOGIN</code> 和 <code>DATAFORSEO_PASSWORD</code> 用于 DataForSEO。</li>
+                      <li><code>OPENROUTER_API_KEY</code> 用于海外 GEO。</li>
+                      <li><code>QIANFAN_ACCESS_KEY</code> 和 <code>QIANFAN_SECRET_KEY</code> 用于百度千帆。</li>
+                    </ul>
+                  </div>
                   <p class="meta">
-                    环境变量仍然需要在服务启动时提供：
-                    <code>DATAFORSEO_LOGIN</code>,
-                    <code>DATAFORSEO_PASSWORD</code>,
-                    <code>OPENROUTER_API_KEY</code>,
-                    <code>QIANFAN_ACCESS_KEY</code>,
-                    <code>QIANFAN_SECRET_KEY</code>.
+                    这个页面只是调用后端，不保存任何密钥。
                   </p>
                 </div>
 
