@@ -12,8 +12,8 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn>=0.30,<1.0",
     "pydantic>=2.7,<3.0",
-    "analysis-engine @ file:///Users/terry/work/dev_env/copilot-worktrees/sag_platform/terry198411-urban-chainsaw/services/analysis-engine",
-    "data-collectors @ file:///Users/terry/work/dev_env/copilot-worktrees/sag_platform/terry198411-urban-chainsaw/services/data-collectors",
+    "analysis-engine>=0.1.0,<0.2.0",
+    "data-collectors>=0.1.0,<0.2.0",
 ]
 
 [project.optional-dependencies]
