@@ -19,6 +19,27 @@
 - A4打印报告和固定报告归档；
 - 一键演示数据。
 
+## 内部 GEO 工作台
+
+首页 `/` 是按项目交付的 GEO 工作台：客户列表、新建向导、配置、采集、可见度、引用来源、回答复核、改进计划和整改建议库。右侧用可关闭的标签打开页面；客户列表里的「看板」只打开该项目的可见度。原来的测评工作台仍在 `/workbench`，采集调试台在 `/console`。
+
+问题库分成 D 类（点名品牌，检查描述是否准确）和 K 类（中性品类问题，才计算提及、推荐和首位）。监测前会冻结配置快照和 `config_hash`。缺少密钥时对应通道记为模拟并跳过，不会让任务失败。浏览器采集（Playwright + Camoufox）只有接口，不会启动浏览器。调度只记录下次运行时间，没有常驻定时进程。
+
+可选的官方 API 密钥（都不写入代码）：
+
+```bash
+export OPENAI_API_KEY="..."
+export PERPLEXITY_API_KEY="..."
+export GEMINI_API_KEY="..."
+export ANTHROPIC_API_KEY="..."
+export DEEPSEEK_API_KEY="..."
+export KIMI_API_KEY="..."
+```
+
+`OPENROUTER_API_KEY` 与千帆密钥仍用于原有批量采样，也可在工作台里作为 OpenRouter / 文心通道。
+
+部分测量口径参考了 NiubiGEO（Apache-2.0，https://github.com/Albert-Weasker/niubigeo ）。采集通道的划分参考了公开的 Elmo 设计思路，并用 Python 重写，没有拷贝其代码。
+
 ## Requirements
 
 - Python 3.11+

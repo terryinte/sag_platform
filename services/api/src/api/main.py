@@ -62,6 +62,7 @@ from api.mvp_service import (
     update_commitment,
     update_project,
 )
+from api.geo_routes import geo_page_html, register_geo_routes
 from api.mvp_ui import render_mvp_page
 from api.services import analyze_service, collect_service
 from api.settings import settings
@@ -73,6 +74,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     database = Database(database_path or settings.database_path)
     database.initialize()
     application.state.database = database
+    register_geo_routes(application, database)
 
     @application.exception_handler(RuntimeError)
     async def runtime_error_handler(_: Request, exc: RuntimeError) -> JSONResponse:
@@ -92,10 +94,14 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
 
     @application.get("/", response_class=HTMLResponse)
     def mvp_page() -> str:
-        return render_mvp_page()
+        return geo_page_html()
 
     @application.get("/ui", response_class=HTMLResponse)
     def mvp_ui_alias() -> str:
+        return geo_page_html()
+
+    @application.get("/workbench", response_class=HTMLResponse)
+    def legacy_workbench() -> str:
         return render_mvp_page()
 
     @application.get("/console", response_class=HTMLResponse)

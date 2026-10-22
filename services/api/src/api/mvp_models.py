@@ -101,6 +101,19 @@ class GeoQuestionCreate(BaseModel):
     question: str
     weight: float = 1
     expected_facts: str = ""
+    probe_type: str = "K"
+    language: str = "zh-CN"
+    rationale: str = ""
+
+
+class GeoQuestionUpdate(BaseModel):
+    intent: str
+    question: str
+    weight: float = 1
+    expected_facts: str = ""
+    probe_type: str = "K"
+    language: str = "zh-CN"
+    rationale: str = ""
 
 
 class GeoRunCreate(BaseModel):
@@ -124,6 +137,7 @@ class GeoResponseCreate(BaseModel):
     misinformation: str = ""
     review_status: str = "pending"
     reviewer_notes: str = ""
+    sample_index: int = 0
 
 
 class GeoResponseReview(BaseModel):
@@ -159,3 +173,93 @@ class ReportCreate(BaseModel):
     conclusion: str = ""
     recommendations: str = ""
     status: str = "draft"
+
+
+class KeyContentCreate(BaseModel):
+    kind: str
+    title: str
+    body: str = ""
+    confirmed: bool = False
+
+
+class ProjectProfileUpdate(BaseModel):
+    delivery_stage: str | None = None
+    delivery_status: str | None = None
+    language: str | None = None
+    region: str | None = None
+    aliases: str | None = None
+    monthly_budget_usd: float | None = None
+    cadence: str | None = None
+
+
+class BootstrapRequest(BaseModel):
+    client_name: str
+    brand_name: str
+    domain: str
+    industry: str = ""
+    aliases: str = ""
+    competitors: list[str] = Field(default_factory=list)
+    language: str = "zh-CN"
+    region: str = "中国大陆"
+    cadence: str = "monthly"
+    delivery_stage: str = "诊断报告"
+    delivery_status: str = "试用"
+    monthly_budget_usd: float | None = None
+    project_name: str = ""
+    key_contents: list[KeyContentCreate] = Field(default_factory=list)
+
+
+class GenerateQuestionsRequest(BaseModel):
+    name: str = "自动问题库"
+    llm: bool = True
+
+
+class BaselineCreate(BaseModel):
+    question_set_id: int
+    engines: list[str]
+    language: str = "zh-CN"
+    region: str = "中国大陆"
+    sample_count: int = 1
+
+
+class MonitorRequest(BaseModel):
+    baseline_id: int
+
+
+class PlaybookCreate(BaseModel):
+    code: str
+    title: str
+    category: str = ""
+    industries: str = ""
+    markets: str = ""
+    engines: str = ""
+    trigger_condition: str = ""
+    steps: str = ""
+    acceptance_metric: str = ""
+    status: str = "草稿"
+
+
+class PlaybookVersionCreate(BaseModel):
+    trigger_condition: str
+    steps: str
+    acceptance_metric: str = ""
+    change_note: str = ""
+    status: str = "草稿"
+
+
+class PlanActionCreate(BaseModel):
+    playbook_version_id: int | None = None
+    report_id: int | None = None
+    priority: str = "P1"
+    action: str
+    action_type: str = ""
+    acceptance: str = ""
+    status: str = "待开始"
+
+
+class OutcomeCreate(BaseModel):
+    metric_name: str = "k_mention_rate"
+    before_value: float | None = None
+    after_value: float | None = None
+    sample_n: int | None = None
+    note: str = ""
