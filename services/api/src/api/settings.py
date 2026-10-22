@@ -21,6 +21,7 @@ class Settings(BaseModel):
     anthropic_api_key: str = Field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     deepseek_api_key: str = Field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
     kimi_api_key: str = Field(default_factory=lambda: os.getenv("KIMI_API_KEY", "") or os.getenv("MOONSHOT_API_KEY", ""))
+    sag_secret_key: str = Field(default_factory=lambda: os.getenv("SAG_SECRET_KEY", ""))
     database_path: str = Field(
         default_factory=lambda: os.getenv(
             "SAG_DATABASE_PATH",

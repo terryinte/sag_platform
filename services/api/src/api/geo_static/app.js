@@ -13,9 +13,10 @@ const TITLES = {
   playbook: "建议详情",
   collection: "采集方案",
   architecture: "技术架构",
+  channels: "采集通道",
   keywords: "添加测试关键词",
 };
-const GLOBAL = new Set(["clients", "wizard", "playbooks", "collection", "architecture"]);
+const GLOBAL = new Set(["clients", "wizard", "playbooks", "collection", "architecture", "channels"]);
 const ENGINES = ["ChatGPT", "Perplexity", "Gemini", "Claude", "DeepSeek", "Kimi", "文心", "OpenRouter", "ChatGPT 网页", "Google AI 概览", "Copilot"];
 const state = {
   tabs: [],
@@ -70,7 +71,15 @@ async function refreshProjects() {
   syncSelect();
 }
 
-function openTab(page, projectId, title, extra) {
+function tabKey(page, projectId, extra) {
+  extra = extra || {};
+  if (page === "playbook") return `playbook:${Number(extra.id) || extra.id || ""}`;
+  if (GLOBAL.has(page)) return page;
+  const id = Number(projectId);
+  return `${page}:${Number.isFinite(id) ? id : projectId}`;
+}
+
+function openTab(page, projectId, title, extra, navId) {
   extra = extra || {};
   const scopedId = projectId || state.projectId;
   if (!GLOBAL.has(page) && page !== "playbook" && !scopedId) {
@@ -78,19 +87,34 @@ function openTab(page, projectId, title, extra) {
     if (page !== "clients") openTab("clients");
     return;
   }
-  let key = page;
-  if (page === "playbook") key = `playbook:${extra.id}`;
-  else if (page === "answer" && extra.attemptId) key = `answer:${extra.attemptId}`;
-  else if (!GLOBAL.has(page)) key = `${page}:${scopedId}`;
+  const key = tabKey(page, scopedId, extra);
+  const nav = navId || (page === "playbook" ? "playbooks" : page);
   const existing = state.tabs.find((tab) => tab.key === key);
   if (existing) {
+    if (navId) existing.nav = nav;
+    existing.extra = existing.extra || {};
+    if (page === "answer") {
+      existing.extra.attemptId = extra.attemptId || null;
+      existing.title = extra.attemptId
+        ? (title || existing.title)
+        : `${TITLES.answer} · ${projectName(existing.projectId)}`;
+    } else if (extra.id) {
+      existing.extra.id = extra.id;
+    }
     state.active = existing.key;
     renderTabs();
     renderActive();
     return;
   }
   const tabTitle = title || (GLOBAL.has(page) || page === "playbook" ? TITLES[page] : `${TITLES[page]} · ${projectName(scopedId)}`);
-  state.tabs.push({ key, page, projectId: GLOBAL.has(page) ? null : scopedId, title: tabTitle, extra });
+  state.tabs.push({
+    key,
+    page,
+    nav,
+    projectId: GLOBAL.has(page) ? null : Number(scopedId) || scopedId,
+    title: tabTitle,
+    extra: { ...extra },
+  });
   state.active = key;
   renderTabs();
   renderActive();
@@ -111,8 +135,8 @@ function closeTab(key, event) {
 
 function renderTabs() {
   const active = state.tabs.find((tab) => tab.key === state.active);
-  document.querySelectorAll(".navbtn[data-page]").forEach((button) => {
-    button.classList.toggle("on", !!active && button.dataset.page === active.page);
+  document.querySelectorAll(".navbtn[data-nav]").forEach((button) => {
+    button.classList.toggle("on", !!active && button.dataset.nav === (active.nav || active.page));
   });
   document.querySelector("#crumb").textContent = active ? active.title : "客户 / 项目";
   document.querySelector("#tabs").innerHTML = state.tabs.map((tab) => (
@@ -202,7 +226,7 @@ async function renderWizard(_tab, panel) {
   const steps = labels.map((label, index) => `<div class="${index === wizard.step ? "on" : index < wizard.step ? "done" : ""}">${label}</div>`).join("");
   let body = "";
   if (wizard.step === 0) {
-    body = `<div class="grid g2"><div><label>客户名称</label><input id="w-client" value="${esc(wizard.client_name || "")}"><label>品牌名</label><input id="w-brand" value="${esc(wizard.brand_name || "")}"><label>别名（逗号分隔）</label><input id="w-aliases" value="${esc(wizard.aliases || "")}"><label>官网</label><input id="w-domain" value="${esc(wizard.domain || "")}"></div><div><label>行业</label><input id="w-industry" value="${esc(wizard.industry || "")}"><label>语言</label><select id="w-lang"><option value="zh-CN">中文 zh-CN</option><option value="en-US">英语 en-US</option></select><label>市场</label><input id="w-region" value="${esc(wizard.region || "中国大陆")}"><label>竞品（逗号分隔，可用 名称|域名）</label><input id="w-competitors" value="${esc(wizard.competitors || "")}"></div></div>`;
+    body = `<div class="grid g2"><div><label>客户名称</label><input id="w-client" value="${esc(wizard.client_name || "")}"><label>品牌名</label><input id="w-brand" value="${esc(wizard.brand_name || "")}"><label>项目名称</label><input id="w-project" value="${esc(wizard.project_name || "")}" placeholder="例如：美国站 GEO 监测"><label>别名（逗号分隔）</label><input id="w-aliases" value="${esc(wizard.aliases || "")}"><label>官网</label><input id="w-domain" value="${esc(wizard.domain || "")}"></div><div><label>行业</label><input id="w-industry" value="${esc(wizard.industry || "")}"><label>语言</label><select id="w-lang"><option value="zh-CN">中文 zh-CN</option><option value="en-US">英语 en-US</option></select><label>市场</label><input id="w-region" value="${esc(wizard.region || "中国大陆")}"><label>竞品（逗号分隔，可用 名称|域名）</label><input id="w-competitors" value="${esc(wizard.competitors || "")}"></div></div>`;
   } else if (wizard.step === 1) {
     const cards = (wizard.contents.length ? wizard.contents : [{ kind: "产品线", title: "", body: "" }]).map((item, index) => `
       <div class="card"><label>类型</label><select data-kind="${index}"><option ${item.kind === "产品线" ? "selected" : ""}>产品线</option><option ${item.kind === "卖点" ? "selected" : ""}>卖点</option><option ${item.kind === "参数" ? "selected" : ""}>参数</option></select><label>标题</label><input data-title="${index}" value="${esc(item.title)}"><label>说明</label><textarea data-body="${index}" rows="2">${esc(item.body || "")}</textarea></div>`).join("");
@@ -212,8 +236,7 @@ async function renderWizard(_tab, panel) {
       <tr><td><span class="tag ${item.probe_type === "K" ? "t-pri" : "t-warn"}">${esc(item.probe_type)}</span></td><td>${esc(item.intent)}</td><td><input data-qid="${item.id}" value="${esc(item.question)}"></td><td style="color:#64748b">${esc(item.rationale || "")}</td></tr>`).join("");
     body = `<p><span class="tag t-pri">共 ${wizard.questions.length} 题</span> <button class="btn sm" type="button" id="regen">重新生成</button> <button class="btn sm pri" type="button" id="save-qs">保存修改</button></p><table><tr><th>类型</th><th>意图</th><th>问题（可编辑）</th><th>依据</th></tr>${rows || "<tr><td colspan='4'>还没有问题</td></tr>"}</table>`;
   } else if (wizard.step === 3) {
-    const chips = ENGINES.map((engine) => `<span class="${["ChatGPT", "Perplexity", "Gemini", "DeepSeek"].includes(engine) ? "on" : ""}" data-engine="${esc(engine)}">${esc(engine)}</span>`).join("");
-    body = `<label>引擎（灰的是未选；网页类是 P1 stub）</label><div class="chips" id="engine-chips">${chips}</div><div class="grid g3"><div><label>每题采样次数</label><select id="samples"><option value="1">1 次</option><option value="3">3 次</option></select></div><div><label>频率</label><select id="cadence"><option value="monthly">每月一次</option><option value="weekly">每周一次</option></select></div><div><label>月度预算（美元，可空）</label><input id="budget" placeholder="60"></div></div><p class="sub">没有密钥的官方 API 会记为模拟并跳过真实请求。浏览器通道只写一条 stub，不会打开网页。</p>`;
+    body = await strategyBody(wizard);
   } else if (wizard.step === 4) {
     body = `<ul><li>修改问题、引擎或采样次数会生成新的问题库版本和新的 config_hash，旧采集保留。</li><li>看板只把哈希相同的两期放在一起比较，不同则标明口径变化。</li><li>D 类问题不能用来计算自然发现率。</li></ul>`;
   } else {
@@ -225,12 +248,12 @@ async function renderWizard(_tab, panel) {
   panel.querySelector("#prev").onclick = () => { wizard.step = Math.max(0, wizard.step - 1); renderWizard(_tab, panel); };
   panel.querySelector("#next").onclick = () => advanceWizard(panel);
   const add = panel.querySelector("#add-content");
-  if (add) add.onclick = () => { readContents(panel); wizard.contents.push({ kind: "卖点", title: "", body: "" }); renderWizard(_tab, panel); };
+  if (add) add.onclick = () => { readContents(panel, true); wizard.contents.push({ kind: "卖点", title: "", body: "" }); renderWizard(_tab, panel); };
   const regen = panel.querySelector("#regen");
   if (regen) regen.onclick = () => generateWizard(true);
   const save = panel.querySelector("#save-qs");
   if (save) save.onclick = () => saveQuestions(panel);
-  panel.querySelectorAll("#engine-chips span").forEach((chip) => { chip.onclick = () => chip.classList.toggle("on"); });
+  bindStrategy(panel, wizard.project && wizard.project.id);
   const board = panel.querySelector("#goto-board");
   if (board && wizard.project) board.onclick = () => openTab("dashboard", wizard.project.id, `看板 · ${wizard.project.brand_name}`);
   const runs = panel.querySelector("#goto-runs");
@@ -241,6 +264,7 @@ function readStep0(panel) {
   const wizard = state.wizard;
   wizard.client_name = panel.querySelector("#w-client").value.trim();
   wizard.brand_name = panel.querySelector("#w-brand").value.trim();
+  wizard.project_name = panel.querySelector("#w-project").value.trim();
   wizard.aliases = panel.querySelector("#w-aliases").value.trim();
   wizard.domain = panel.querySelector("#w-domain").value.trim();
   wizard.industry = panel.querySelector("#w-industry").value.trim();
@@ -249,14 +273,85 @@ function readStep0(panel) {
   wizard.competitors = panel.querySelector("#w-competitors").value.trim();
 }
 
-function readContents(panel) {
+function readContents(panel, keepEmpty) {
   const wizard = state.wizard;
-  wizard.contents = [...panel.querySelectorAll("[data-title]")].map((input) => ({
+  const items = [...panel.querySelectorAll("[data-title]")].map((input) => ({
     kind: panel.querySelector(`[data-kind="${input.dataset.title}"]`).value,
     title: input.value.trim(),
     body: panel.querySelector(`[data-body="${input.dataset.title}"]`).value.trim(),
     confirmed: true,
-  })).filter((item) => item.title);
+  }));
+  wizard.contents = keepEmpty ? items : items.filter((item) => item.title);
+}
+
+function selectedEngines(panel) {
+  return [...panel.querySelectorAll("#engine-chips span.on")].map((item) => item.dataset.engine);
+}
+
+function budgetLine(estimate) {
+  if (!estimate) return "正在估算费用…";
+  const cap = estimate.over_cap ? " 预计费用超过某个通道的单次预算上限。" : "";
+  return `预计本次约 $${estimate.estimated_cost_usd}（${estimate.api_calls} 次 API）。已花费 $${estimate.spent_usd}。${estimate.note || ""}${cap}`;
+}
+
+async function strategyBody(wizard) {
+  const defaults = ["ChatGPT", "Perplexity", "Gemini", "DeepSeek"];
+  let channels = [];
+  let strategy = { channels: [], sample_count: 1, cadence: "monthly", web_sample_percent: 15 };
+  let estimate = null;
+  if (wizard.project) {
+    channels = await api("/api/geo/channels");
+    strategy = await api(`/api/projects/${wizard.project.id}/collection-strategy`);
+  }
+  const selected = new Set(wizard.engines || strategy.channels || []);
+  if (!wizard.engines && !strategy.channels.length) defaults.forEach((item) => selected.add(item));
+  wizard.engines = [...selected];
+  const sampleCount = wizard.sampleCount || strategy.sample_count || 1;
+  const cadence = wizard.cadenceChoice || strategy.cadence || "monthly";
+  const webPercent = wizard.webPercent == null ? (strategy.web_sample_percent ?? 15) : wizard.webPercent;
+  if (wizard.project) {
+    estimate = await api(`/api/projects/${wizard.project.id}/geo/budget-estimate`, {
+      method: "POST",
+      body: JSON.stringify({ engines: wizard.engines, sample_count: Number(sampleCount) || 1 }),
+    });
+  }
+  const chips = channels.map((item) => {
+    const mark = item.kind === "web" ? " · P1/未实现" : "";
+    const on = selected.has(item.engine) ? "on" : "";
+    return `<span class="${on}" data-engine="${esc(item.engine)}">${esc(item.label)}${mark}</span>`;
+  }).join("");
+  return `<label>采集通道（网页类是 P1，只记录计划抽样）</label><div class="chips" id="engine-chips">${chips}</div>
+    <div class="grid g3"><div><label>每题采样次数</label><select id="samples"><option value="1" ${Number(sampleCount) === 1 ? "selected" : ""}>1 次</option><option value="3" ${Number(sampleCount) === 3 ? "selected" : ""}>3 次</option></select></div>
+    <div><label>频率</label><select id="cadence"><option value="monthly" ${cadence === "monthly" ? "selected" : ""}>每月一次</option><option value="weekly" ${cadence === "weekly" ? "selected" : ""}>每周一次</option></select></div>
+    <div><label>网页抽样核对（核心问题）</label><input id="web-percent" type="number" min="0" max="100" value="${esc(webPercent)}"> <span class="sub">默认 15%</span></div></div>
+    <label>月度预算（美元，可空）</label><input id="budget" placeholder="60" value="${esc(wizard.monthlyBudget || "")}">
+    <p id="est">${esc(budgetLine(estimate))}</p>
+    <p class="sub">没有密钥的官方 API 会记为模拟并跳过真实请求。浏览器通道不会打开网页，只按比例记下计划抽样。</p>`;
+}
+
+function bindStrategy(panel, projectId) {
+  const chips = panel.querySelector("#engine-chips");
+  if (!chips) return;
+  const refresh = async () => {
+    if (!projectId) return;
+    const engines = selectedEngines(panel);
+    const sample = Number(panel.querySelector("#samples").value) || 1;
+    try {
+      const estimate = await api(`/api/projects/${projectId}/geo/budget-estimate`, {
+        method: "POST",
+        body: JSON.stringify({ engines, sample_count: sample }),
+      });
+      const line = panel.querySelector("#est");
+      if (line) line.textContent = budgetLine(estimate);
+    } catch (error) {
+      toast(error.message);
+    }
+  };
+  chips.querySelectorAll("span").forEach((chip) => {
+    chip.onclick = () => { chip.classList.toggle("on"); refresh(); };
+  });
+  const samples = panel.querySelector("#samples");
+  if (samples) samples.onchange = refresh;
 }
 
 async function advanceWizard(panel) {
@@ -272,8 +367,9 @@ async function advanceWizard(panel) {
         ];
       }
     } else if (wizard.step === 1) {
-      readContents(panel);
-      if (!wizard.contents.length) throw new Error("至少填写一条产品或卖点");
+      readContents(panel, true);
+      const filled = wizard.contents.filter((item) => item.title);
+      if (!filled.length) throw new Error("至少填写一条产品或卖点");
       if (!wizard.project) {
         wizard.project = await api("/api/geo/bootstrap", {
           method: "POST",
@@ -286,8 +382,8 @@ async function advanceWizard(panel) {
             competitors: wizard.competitors.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
             language: wizard.language || "zh-CN",
             region: wizard.region || "中国大陆",
-            key_contents: wizard.contents,
-            project_name: `${wizard.brand_name} GEO 监测`,
+            key_contents: filled,
+            project_name: wizard.project_name || `${wizard.brand_name} GEO 监测`,
           }),
         });
         state.projectId = wizard.project.id;
@@ -298,8 +394,21 @@ async function advanceWizard(panel) {
     } else if (wizard.step === 2) {
       await saveQuestions(panel);
     } else if (wizard.step === 3) {
-      const engines = [...panel.querySelectorAll("#engine-chips span.on")].map((item) => item.dataset.engine);
+      const engines = selectedEngines(panel);
       if (!engines.length) throw new Error("至少选择一个引擎");
+      const sampleCount = Number(panel.querySelector("#samples").value);
+      const webPercent = Number(panel.querySelector("#web-percent").value);
+      const cadence = panel.querySelector("#cadence").value;
+      if (!Number.isFinite(webPercent) || webPercent < 0 || webPercent > 100) throw new Error("网页抽样比例需在 0 到 100 之间");
+      wizard.engines = engines;
+      wizard.sampleCount = sampleCount;
+      wizard.webPercent = webPercent;
+      wizard.cadenceChoice = cadence;
+      wizard.monthlyBudget = panel.querySelector("#budget").value.trim();
+      await api(`/api/projects/${wizard.project.id}/collection-strategy`, {
+        method: "PUT",
+        body: JSON.stringify({ channels: engines, sample_count: sampleCount, cadence, web_sample_percent: webPercent }),
+      });
       const baseline = await api(`/api/projects/${wizard.project.id}/geo/baselines`, {
         method: "POST",
         body: JSON.stringify({
@@ -307,11 +416,11 @@ async function advanceWizard(panel) {
           engines,
           language: wizard.language || "zh-CN",
           region: wizard.region || "中国大陆",
-          sample_count: Number(panel.querySelector("#samples").value),
+          sample_count: sampleCount,
+          web_sample_percent: webPercent,
         }),
       });
-      const budget = panel.querySelector("#budget").value.trim();
-      const cadence = panel.querySelector("#cadence").value;
+      const budget = wizard.monthlyBudget;
       await api(`/api/projects/${wizard.project.id}/profile`, {
         method: "PUT",
         body: JSON.stringify({ cadence, monthly_budget_usd: budget ? Number(budget) : null, delivery_status: "诊断中" }),
@@ -375,6 +484,14 @@ async function renderConfig(tab, panel) {
   const sets = await api(`/api/projects/${tab.projectId}/geo/question-sets`);
   const questions = sets[0] ? await api(`/api/geo/question-sets/${sets[0].id}/questions`) : [];
   const baselines = await api(`/api/projects/${tab.projectId}/geo/baselines`);
+  const channels = await api("/api/geo/channels");
+  const strategy = await api(`/api/projects/${tab.projectId}/collection-strategy`);
+  const chosen = new Set(strategy.channels.length ? strategy.channels : ["ChatGPT", "Perplexity", "Gemini", "DeepSeek"]);
+  const estimate = await api(`/api/projects/${tab.projectId}/geo/budget-estimate`, {
+    method: "POST",
+    body: JSON.stringify({ engines: [...chosen], sample_count: strategy.sample_count || 1, question_set_id: sets[0] ? sets[0].id : null }),
+  });
+  const chips = channels.map((item) => `<span class="${chosen.has(item.engine) ? "on" : ""}" data-engine="${esc(item.engine)}">${esc(item.label)}${item.kind === "web" ? " · P1/未实现" : ""}</span>`).join("");
   panel.innerHTML = `
     <h1>项目配置 · ${esc(project.brand_name)}</h1>
     <p class="sub">保存快照会冻结引擎、语言、市场、采样次数和问题文本，并计算 config_hash。</p>
@@ -393,11 +510,25 @@ async function renderConfig(tab, panel) {
     </div>
     <div class="card" style="margin-top:16px"><h3>问题库 ${sets[0] ? esc(sets[0].version) : ""} <small>D 类不能拿来算自然发现率</small></h3>
       <table><tr><th>类型</th><th>意图</th><th>问题</th></tr>${questions.map((item) => `<tr><td><span class="tag ${item.probe_type === "D" ? "t-warn" : "t-pri"}">${esc(item.probe_type || "K")}</span></td><td>${esc(item.intent)}</td><td>${esc(item.question)}</td></tr>`).join("") || "<tr><td colspan='3'>请先在向导中生成问题</td></tr>"}</table>
-      <div class="chips" id="cfg-engines" style="margin-top:12px">${ENGINES.map((engine) => `<span class="${["ChatGPT", "Perplexity", "Gemini", "DeepSeek"].includes(engine) ? "on" : ""}" data-engine="${esc(engine)}">${esc(engine)}</span>`).join("")}</div>
+      <h3 style="margin-top:16px">采集策略</h3>
+      <div class="chips" id="cfg-engines">${chips}</div>
+      <div class="grid g3"><div><label>每题采样次数</label><select id="cfg-samples"><option value="1" ${strategy.sample_count === 1 ? "selected" : ""}>1 次</option><option value="3" ${strategy.sample_count === 3 ? "selected" : ""}>3 次</option></select></div>
+      <div><label>频率</label><select id="cfg-cadence"><option value="monthly" ${strategy.cadence === "monthly" ? "selected" : ""}>每月一次</option><option value="weekly" ${strategy.cadence === "weekly" ? "selected" : ""}>每周一次</option></select></div>
+      <div><label>网页抽样核对 %</label><input id="cfg-web" type="number" min="0" max="100" value="${esc(strategy.web_sample_percent ?? 15)}"></div></div>
+      <p id="cfg-est">${esc(budgetLine(estimate))}</p>
       <p><button class="btn pri" type="button" id="snapshot" ${sets[0] ? "" : "disabled"}>保存快照并开始采集</button></p>
       <p class="sub">已有快照：${baselines.map((item) => esc(item.config_hash.slice(0, 8))).join("、") || "无"}</p>
     </div>`;
-  panel.querySelectorAll("#cfg-engines span").forEach((chip) => { chip.onclick = () => chip.classList.toggle("on"); });
+  const refreshConfigEstimate = async () => {
+    const engines = [...panel.querySelectorAll("#cfg-engines span.on")].map((item) => item.dataset.engine);
+    const est = await api(`/api/projects/${tab.projectId}/geo/budget-estimate`, {
+      method: "POST",
+      body: JSON.stringify({ engines, sample_count: Number(panel.querySelector("#cfg-samples").value) || 1, question_set_id: sets[0] ? sets[0].id : null }),
+    });
+    panel.querySelector("#cfg-est").textContent = budgetLine(est);
+  };
+  panel.querySelectorAll("#cfg-engines span").forEach((chip) => { chip.onclick = () => { chip.classList.toggle("on"); refreshConfigEstimate(); }; });
+  panel.querySelector("#cfg-samples").onchange = refreshConfigEstimate;
   panel.querySelector("#save-profile").onclick = async () => {
     await api(`/api/projects/${tab.projectId}/profile`, { method: "PUT", body: JSON.stringify({ aliases: panel.querySelector("#aliases").value, delivery_stage: panel.querySelector("#stage").value, delivery_status: panel.querySelector("#status").value }) });
     toast("已保存");
@@ -409,7 +540,11 @@ async function renderConfig(tab, panel) {
   const snapshot = panel.querySelector("#snapshot");
   if (snapshot) snapshot.onclick = async () => {
     const engines = [...panel.querySelectorAll("#cfg-engines span.on")].map((item) => item.dataset.engine);
-    const baseline = await api(`/api/projects/${tab.projectId}/geo/baselines`, { method: "POST", body: JSON.stringify({ question_set_id: sets[0].id, engines, language: project.language || "zh-CN", region: project.region || "中国大陆", sample_count: 1 }) });
+    const sampleCount = Number(panel.querySelector("#cfg-samples").value) || 1;
+    const webPercent = Number(panel.querySelector("#cfg-web").value);
+    const cadence = panel.querySelector("#cfg-cadence").value;
+    await api(`/api/projects/${tab.projectId}/collection-strategy`, { method: "PUT", body: JSON.stringify({ channels: engines, sample_count: sampleCount, cadence, web_sample_percent: webPercent }) });
+    const baseline = await api(`/api/projects/${tab.projectId}/geo/baselines`, { method: "POST", body: JSON.stringify({ question_set_id: sets[0].id, engines, language: project.language || "zh-CN", region: project.region || "中国大陆", sample_count: sampleCount, web_sample_percent: webPercent }) });
     const result = await api(`/api/projects/${tab.projectId}/geo/monitor`, { method: "POST", body: JSON.stringify({ baseline_id: baseline.id }) });
     toast(`采集 ${result.status}`);
     openTab("runs", tab.projectId);
@@ -470,15 +605,20 @@ async function renderSources(tab, panel) {
     <div class="card" style="margin-top:16px"><h3>机会：竞品被引用、我方未出现</h3><table><tr><th>网址</th><th>次数</th></tr>${(data.gaps || []).map((item) => `<tr><td>${esc(item.url)}</td><td>${item.count}</td></tr>`).join("") || "<tr><td colspan='2'>暂无缺口</td></tr>"}</table>
     <p><button class="btn pri" type="button" id="to-plan">加入 30 天计划</button></p></div>`;
   panel.querySelector("#to-plan").onclick = async () => {
-    await api(`/api/projects/${tab.projectId}/plan/suggest`, { method: "POST", body: "{}" });
-    openTab("plan", tab.projectId);
+    try {
+      const actions = await api(`/api/projects/${tab.projectId}/plan/suggest`, { method: "POST", body: "{}" });
+      toast(actions.length ? `已放入 30 天计划（${actions.length} 条）` : "没有可加入的建议");
+      openTab("plan", tab.projectId, undefined, {}, "plan");
+    } catch (error) {
+      toast(error.message);
+    }
   };
 }
 
 async function renderAnswer(tab, panel) {
   if (!tab.extra.attemptId) {
     const attempts = await api(`/api/projects/${tab.projectId}/geo/attempts`);
-    panel.innerHTML = `<h1>回答列表 · ${esc(projectName(tab.projectId))}</h1><div class="card"><table><tr><th>类型</th><th>问题</th><th>引擎</th><th>状态</th><th></th></tr>${attempts.map((item) => `<tr><td>${esc(item.probe_type)}</td><td>${esc(item.question)}</td><td>${esc(item.engine)}</td><td>${esc(item.status)}</td><td><button class="btn sm" type="button" data-attempt="${item.id}">打开</button></td></tr>`).join("") || "<tr><td colspan='5'>还没有采集尝试</td></tr>"}</table></div>`;
+    panel.innerHTML = `<h1>回答列表 · ${esc(projectName(tab.projectId))}</h1><div class="card"><table><tr><th>类型</th><th>问题</th><th>引擎</th><th>状态</th><th></th></tr>${attempts.map((item) => `<tr><td>${esc(item.probe_type)}</td><td>${esc(item.question)}</td><td>${esc(item.engine)}</td><td>${esc(item.status)} ${esc(item.error_code || "")}</td><td><button class="btn sm" type="button" data-attempt="${item.id}">打开</button></td></tr>`).join("") || "<tr><td colspan='5'>还没有采集尝试</td></tr>"}</table></div>`;
     panel.querySelectorAll("[data-attempt]").forEach((button) => {
       button.onclick = () => openTab("answer", tab.projectId, `回答 ${button.dataset.attempt}`, { attemptId: Number(button.dataset.attempt) });
     });
@@ -487,8 +627,11 @@ async function renderAnswer(tab, panel) {
   const detail = await api(`/api/geo/attempts/${tab.extra.attemptId}`);
   const attempt = detail.attempt;
   const response = detail.response;
+  const skipped = attempt.status !== "ok";
   panel.innerHTML = `<h1>回答详情 · ${esc(attempt.engine)}</h1>
+    <p><button class="btn sm" type="button" id="back-list">返回列表</button></p>
     <p class="sub">${esc(attempt.probe_type)} · ${esc(attempt.question)} · ${esc(attempt.access)} · ${esc(attempt.status)} ${esc(attempt.error_code || "")} · sha256 ${esc((attempt.payload_sha256 || "").slice(0, 12))}</p>
+    ${skipped ? `<div class="card" style="border-color:#fde68a;background:#fffbeb;margin-bottom:16px"><b>本次未采到真实回答</b><p>${esc(reasonText(attempt))}</p><p class="sub">状态 ${esc(attempt.status)} · ${esc(attempt.error_code || "无错误码")} · 通道 ${esc(attempt.access)}</p></div>` : ""}
     <div class="grid g21"><div class="card"><h3>原始回答</h3><div style="white-space:pre-wrap;line-height:1.7">${esc(attempt.raw_response || "（无正文）")}</div>
       <h3 style="margin-top:12px">结构化引用</h3><table><tr><th>#</th><th>网址</th><th>分类</th></tr>${detail.citations.map((item) => `<tr><td>${item.position || ""}</td><td>${esc(item.url)}</td><td>${esc(item.category)}</td></tr>`).join("") || "<tr><td colspan='3'>无</td></tr>"}</table>
       <p>搜索词：${(attempt.web_queries || []).map((item) => `<span class="tag">${esc(item)}</span>`).join("") || "无"}</p></div>
@@ -499,6 +642,7 @@ async function renderAnswer(tab, panel) {
         <label>进入推荐</label><select id="rv-rec"><option value="false">否</option><option value="true">是</option></select>
         <label>备注</label><textarea id="rv-notes" rows="3"></textarea>
         <button class="btn pri" type="button" id="rv-save">确认复核</button></div></div></div>`;
+  panel.querySelector("#back-list").onclick = () => openTab("answer", tab.projectId, undefined, {}, "answer");
   if (response) {
     panel.querySelector("#rv-mentioned").value = response.brand_mentioned ? "true" : "false";
     panel.querySelector("#rv-rec").value = response.recommended ? "true" : "false";
@@ -520,7 +664,18 @@ async function renderAnswer(tab, panel) {
     };
   } else {
     panel.querySelector("#rv-save").disabled = true;
+    panel.querySelector("#rv-notes").value = reasonText(attempt);
   }
+}
+
+function reasonText(attempt) {
+  const code = attempt.error_code || "";
+  if (code === "missing_api_key") return "未配置 API 密钥，本次没有发起真实请求。正文里的模拟说明不能当成联网结果。";
+  if (code === "browser_stub") return "网页采集尚未实现。这条记录只表示计划中的抽样核对，没有打开浏览器。";
+  if (code === "unsupported_engine") return "没有找到这个引擎对应的采集通道。";
+  if (attempt.status === "error") return "采集通道返回错误，原始回答可能为空。";
+  if (attempt.status !== "ok") return "本次没有拿到可用回答。";
+  return "";
 }
 
 async function renderAssessment(tab, panel) {
@@ -570,9 +725,14 @@ async function renderReport(tab, panel) {
   panel.innerHTML = `<h1>报告预览 · ${esc(projectName(tab.projectId))}</h1>
     <p class="sub">报告冻结时所引用的建议版本会写进 HTML。D 类不代表自然发现率；引用不代表因果；API 与浏览器结果要分开看。</p>
     <div class="card"><p><button class="btn" type="button" id="preview">打开实时预览</button> <button class="btn pri" type="button" id="archive">归档当前报告</button></p>
+      <iframe id="report-frame" hidden title="报告预览" style="width:100%;height:640px;border:1px solid var(--line);border-radius:12px;margin-top:12px;background:#fff"></iframe>
       <table><tr><th>标题</th><th>状态</th><th></th></tr>${reports.map((item) => `<tr><td>${esc(item.title)}</td><td>${esc(item.status)}</td><td><a href="/reports/${tab.projectId}/${item.id}" target="_blank">查看</a></td></tr>`).join("") || "<tr><td colspan='3'>尚未归档</td></tr>"}</table></div>
     <div class="card" style="margin-top:16px"><h3>将写入报告的行动</h3><table><tr><th>行动</th><th>建议版本</th><th>验收</th></tr>${plan.map((item) => `<tr><td>${esc(item.action)}</td><td>${esc(item.playbook_code || "自定义")} ${item.playbook_version ? "v" + item.playbook_version : ""}</td><td>${esc(item.acceptance || "")}</td></tr>`).join("") || "<tr><td colspan='3'>先在改进计划里选用建议</td></tr>"}</table></div>`;
-  panel.querySelector("#preview").onclick = () => window.open(`/reports/${tab.projectId}/preview`, "_blank");
+  panel.querySelector("#preview").onclick = () => {
+    const frame = panel.querySelector("#report-frame");
+    frame.hidden = false;
+    frame.src = `/reports/${tab.projectId}/preview`;
+  };
   panel.querySelector("#archive").onclick = async () => {
     await api(`/api/projects/${tab.projectId}/reports`, { method: "POST", body: JSON.stringify({ title: `${projectName(tab.projectId)} GEO 可见度诊断` }) });
     toast("已归档");
@@ -592,6 +752,7 @@ async function renderPlaybooks(_tab, panel) {
 }
 
 async function renderPlaybook(tab, panel) {
+  if (!state.projects.length) await refreshProjects();
   const data = await api(`/api/playbooks/${tab.extra.id}`);
   const book = data.playbook;
   const current = data.versions[0];
@@ -599,8 +760,35 @@ async function renderPlaybook(tab, panel) {
     <div class="grid g21"><div class="card"><h3>触发条件</h3><p>${esc(current ? current.trigger_condition : "")}</p><h3>步骤</h3><pre style="white-space:pre-wrap">${esc(current ? current.steps : "")}</pre><h3>验收</h3><p>${esc(current ? current.acceptance_metric : "")}</p>
       <h3>版本</h3><table>${data.versions.map((item) => `<tr><td>v${item.version}</td><td>${esc(item.status)}</td><td>${esc(item.change_note || "")}</td></tr>`).join("")}</table>
       <button class="btn sm" type="button" id="upgrade">升级版本</button></div>
-      <div class="card"><h3>关联项目</h3><table><tr><th>项目</th><th>版本</th><th>状态</th></tr>${data.actions.map((item) => `<tr><td>${esc(item.project_name)}</td><td>v${item.playbook_version}</td><td>${esc(item.status)}</td></tr>`).join("") || "<tr><td colspan='3'>还没有项目选用</td></tr>"}</table>
+      <div class="card"><h3>加入计划</h3><p class="sub">把当前版本 v${current ? current.version : ""} 钉到所选项目的 30 天计划。之后升级建议不会改这条引用。</p>
+        <label>项目</label><select id="plan-project">${state.projects.map((item) => `<option value="${item.id}">${esc(item.brand_name)} · ${esc(item.name)}</option>`).join("") || `<option value="">还没有项目</option>`}</select>
+        <p><button class="btn pri" type="button" id="add-to-plan" ${current ? "" : "disabled"}>加入计划</button></p>
+        <h3>关联项目</h3><table><tr><th>项目</th><th>版本</th><th>状态</th></tr>${data.actions.map((item) => `<tr><td>${esc(item.project_name)}</td><td>v${item.playbook_version}</td><td>${esc(item.status)}</td></tr>`).join("") || "<tr><td colspan='3'>还没有项目选用</td></tr>"}</table>
       <h3>效果回写</h3>${data.outcomes.map((item) => `<p>${esc(item.project_name)} v${item.playbook_version}：${item.delta == null ? "—" : item.delta}（n=${item.sample_n ?? "—"}）</p>`).join("") || "<p>暂无</p>"}</div></div>`;
+  const addPlan = panel.querySelector("#add-to-plan");
+  if (addPlan && current) addPlan.onclick = async () => {
+    const projectId = Number(panel.querySelector("#plan-project").value);
+    if (!projectId) { toast("请选择项目"); return; }
+    try {
+      await api(`/api/projects/${projectId}/plan-actions`, {
+        method: "POST",
+        body: JSON.stringify({
+          playbook_version_id: current.id,
+          priority: "P1",
+          action: book.title,
+          action_type: book.category || "",
+          acceptance: current.acceptance_metric || "",
+          status: "待开始",
+        }),
+      });
+      toast(`已加入计划，绑定 v${current.version}`);
+      state.projectId = projectId;
+      syncSelect();
+      openTab("plan", projectId, undefined, {}, "plan");
+    } catch (error) {
+      toast(error.message);
+    }
+  };
   panel.querySelector("#upgrade").onclick = async () => {
     const note = window.prompt("版本变更说明", "补充步骤");
     if (!note) return;
@@ -617,6 +805,89 @@ async function renderPlaybook(tab, panel) {
     toast("已新增版本，旧引用不变");
     renderActive();
   };
+}
+
+async function renderChannels(_tab, panel) {
+  const channels = await api("/api/geo/channels");
+  const card = (item) => {
+    if (item.kind === "web") {
+      return `<div class="card"><h3>${esc(item.label)} <span class="tag t-warn">未实现</span> <span class="tag">${esc(item.phase)}</span></h3>
+        <p class="sub">网页模拟通道尚未实现，测试连接不会打开浏览器。</p>
+        <button class="btn sm" type="button" data-test="${esc(item.id)}">测试连接</button>
+        <p class="sub">${esc(item.last_error || "")}</p></div>`;
+    }
+    const badge = item.status === "已连接" ? "t-ok" : item.status === "错误" ? "t-bad" : "t-warn";
+    const placeholder = item.has_key ? `已保存 ****${item.key_last4}（${item.key_source === "env" ? "环境变量优先" : "服务器"}）` : "未填写";
+    const secret = item.dual_key ? `<label>Secret Key</label><input id="secret-${esc(item.id)}" type="password" autocomplete="off" placeholder="${item.secret_last4 ? "已保存 ****" + esc(item.secret_last4) : "未填写"}">` : "";
+    return `<div class="card"><h3>${esc(item.label)} <span class="tag ${badge}">${esc(item.status)}</span> <span class="tag">${esc(item.phase)}</span></h3>
+      <p class="sub">引擎 ${esc(item.engine)} · 环境变量 ${(item.env_vars || []).map((name) => esc(name)).join(" / ") || "—"}</p>
+      <label>启用</label><select id="en-${esc(item.id)}"><option value="1" ${item.enabled ? "selected" : ""}>启用</option><option value="0" ${item.enabled ? "" : "selected"}>停用</option></select>
+      <label>API Key</label><input id="key-${esc(item.id)}" type="password" autocomplete="off" placeholder="${esc(placeholder)}">
+      ${secret}
+      <label>模型</label><input id="model-${esc(item.id)}" value="${esc(item.model || "")}">
+      <label>联网搜索</label><select id="web-${esc(item.id)}"><option value="1" ${item.web_search ? "selected" : ""}>开</option><option value="0" ${item.web_search ? "" : "selected"}>关</option></select>
+      <div class="grid g2"><div><label>地区</label><input id="region-${esc(item.id)}" value="${esc(item.region || "")}"></div><div><label>语言</label><input id="lang-${esc(item.id)}" value="${esc(item.language || "")}"></div></div>
+      <div class="grid g2"><div><label>并发</label><input id="con-${esc(item.id)}" type="number" min="1" max="32" value="${item.concurrency}"></div><div><label>速率（次/分钟）</label><input id="rate-${esc(item.id)}" type="number" min="1" max="1000" value="${item.rate_limit_rpm}"></div></div>
+      <label>单次预算上限（美元，可空）</label><input id="cap-${esc(item.id)}" type="number" min="0" step="0.01" value="${item.budget_cap_usd ?? ""}">
+      <p class="sub">${item.last_tested_at ? `上次测试 ${esc(item.last_tested_at)} · ${item.last_latency_ms ?? "—"} ms` : "尚未测试"}${item.last_error ? ` · ${esc(item.last_error)}` : ""}</p>
+      <p><button class="btn sm" type="button" data-save="${esc(item.id)}">保存</button>
+      <button class="btn sm" type="button" data-test="${esc(item.id)}">测试连接</button>
+      <button class="btn sm" type="button" data-clear="${esc(item.id)}">清除密钥</button></p></div>`;
+  };
+  panel.innerHTML = `<h1>采集通道</h1><p class="sub">每个官方 API 单独配置。密钥加密后只存服务器，页面只显示末四位；环境变量仍然优先。没有 SAG_SECRET_KEY 时不能保存新密钥。网页通道是 P1，尚未实现。</p><div class="channels">${channels.map(card).join("")}</div>`;
+  const readChannel = (id) => {
+    const cap = panel.querySelector(`#cap-${id}`).value.trim();
+    const body = {
+      enabled: panel.querySelector(`#en-${id}`).value === "1",
+      model: panel.querySelector(`#model-${id}`).value,
+      web_search: panel.querySelector(`#web-${id}`).value === "1",
+      region: panel.querySelector(`#region-${id}`).value,
+      language: panel.querySelector(`#lang-${id}`).value,
+      concurrency: Number(panel.querySelector(`#con-${id}`).value),
+      rate_limit_rpm: Number(panel.querySelector(`#rate-${id}`).value),
+      budget_cap_usd: cap === "" ? null : Number(cap),
+    };
+    const key = panel.querySelector(`#key-${id}`);
+    if (key && key.value.trim()) body.api_key = key.value.trim();
+    const secret = panel.querySelector(`#secret-${id}`);
+    if (secret && secret.value.trim()) body.api_secret = secret.value.trim();
+    return body;
+  };
+  panel.querySelectorAll("[data-save]").forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await api(`/api/geo/channels/${button.dataset.save}`, { method: "PUT", body: JSON.stringify(readChannel(button.dataset.save)) });
+        toast("已保存");
+        renderActive();
+      } catch (error) {
+        toast(error.message);
+      }
+    };
+  });
+  panel.querySelectorAll("[data-clear]").forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await api(`/api/geo/channels/${button.dataset.clear}`, { method: "PUT", body: JSON.stringify({ clear_key: true }) });
+        toast("已清除保存的密钥");
+        renderActive();
+      } catch (error) {
+        toast(error.message);
+      }
+    };
+  });
+  panel.querySelectorAll("[data-test]").forEach((button) => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const result = await api(`/api/geo/channels/${button.dataset.test}/test`, { method: "POST", body: "{}" });
+        toast(result.ok ? `已连接 ${result.latency_ms} ms` : `${result.status}${result.error ? "：" + result.error : ""}`);
+        renderActive();
+      } catch (error) {
+        toast(error.message);
+        button.disabled = false;
+      }
+    };
+  });
 }
 
 async function renderCollection(_tab, panel) {
@@ -668,6 +939,7 @@ const RENDER = {
   report: renderReport,
   playbooks: renderPlaybooks,
   playbook: renderPlaybook,
+  channels: renderChannels,
   collection: renderCollection,
   architecture: renderArchitecture,
   keywords: renderKeywords,
@@ -675,7 +947,7 @@ const RENDER = {
 
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".navbtn[data-page]").forEach((button) => {
-    button.onclick = () => openTab(button.dataset.page, state.projectId);
+    button.onclick = () => openTab(button.dataset.page, state.projectId, undefined, {}, button.dataset.nav || button.dataset.page);
   });
   document.querySelector("#new-project").onclick = () => openTab("wizard");
   document.querySelector("#seed-demo").onclick = async () => {

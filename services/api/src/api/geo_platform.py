@@ -47,6 +47,14 @@ from api.mvp_service import (
     list_projects,
     list_questions,
 )
+from api.collection_settings import (
+    apply_channel_runtime,
+    channel_settings_for_hash,
+    effective_provider_env,
+    is_web_engine,
+    record_planned_web_samples,
+    strategy_web_percent,
+)
 from data_collectors.providers.answers import ScrapeResult, build_answer_providers, resolve_provider
 
 PROTOCOL_VERSION = "geo-p0-1"
@@ -180,6 +188,24 @@ def _host(value: str) -> str:
     return host
 
 
+def _competitor_pairs(raw_items: list[str]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        for piece in re.split(r"[,，、;；\n]", raw or ""):
+            name, _, domain = piece.partition("|")
+            name = name.strip()
+            domain = domain.strip()
+            if not name:
+                continue
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append((name, domain))
+    return pairs
+
+
 def _contains_brand(text: str, aliases: list[str]) -> bool:
     folded = text.casefold()
     return any(alias.casefold() in folded for alias in aliases if len(alias.strip()) >= 2)
@@ -241,22 +267,50 @@ def _normalize_drafts(profile: dict, items: list[dict]) -> list[dict]:
     return cleaned
 
 
+def _unglue(text: str) -> str:
+    """Drop a description that was glued onto a title with a fullwidth colon."""
+    if "：" not in text:
+        return text.strip()
+    left, right = text.split("：", 1)
+    right = right.strip()
+    if right and (len(right) >= len(left.strip()) or any(token in right for token in ("Selling", "说明", "卖点"))):
+        return left.strip()
+    return text.strip()
+
+
+def _split_phrases(values: list[str]) -> list[str]:
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = _unglue(str(value or ""))
+        for part in re.split(r"[,，、;；\n]", text):
+            phrase = part.strip(" ：:.")
+            if len(phrase) < 2:
+                continue
+            key = phrase.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(phrase)
+    return items
+
+
 def _template_questions(profile: dict) -> list[dict]:
     brand = profile.get("brand_name") or "该品牌"
     aliases = [brand, *list(profile.get("aliases") or [])]
     language = profile.get("language") or "zh-CN"
     chinese = language.lower().startswith("zh")
-    products = list(profile.get("products") or []) or ["这类产品"]
-    points = list(profile.get("selling_points") or [])
-    competitors = list(profile.get("competitors") or []) or ["主要竞品"]
+    products = _split_phrases(list(profile.get("products") or [])) or (["这类产品"] if chinese else ["this kind of product"])
+    points = _split_phrases(list(profile.get("selling_points") or []))
+    competitors = _split_phrases(list(profile.get("competitors") or []))
     drafts: list[dict] = []
 
-    def add(probe: str, intent: str, question: str, rationale: str) -> None:
+    def add(bucket: list[dict], probe: str, intent: str, question: str, rationale: str) -> None:
         if probe == "K" and _contains_brand(question, aliases):
             return
-        if any(item["question"] == question for item in drafts):
+        if any(item["question"] == question for item in drafts) or any(item["question"] == question for item in bucket):
             return
-        drafts.append(
+        bucket.append(
             {
                 "probe_type": probe,
                 "intent": intent,
@@ -267,42 +321,58 @@ def _template_questions(profile: dict) -> list[dict]:
             }
         )
 
-    product = products[0]
-    competitor = competitors[0]
+    direct: list[dict] = []
+    competitor_questions: list[dict] = []
+    optional: list[dict] = []
     if chinese:
-        add("D", "品牌", f"{brand} 是什么品牌，值得信任吗？", "D 类模板：品牌认知")
-        add("D", "品牌", f"{brand} 的{product}有哪些优缺点？", "D 类模板：产品评价")
-        add("K", "发现", f"最好的{product}有哪些推荐？", f"来自产品：{product}")
-        if points:
-            add("K", "发现", f"注重「{points[0]}」时，{product}怎么选？", f"来自卖点：{points[0]}")
-        add("K", "替代", f"{competitor} 的替代品牌有哪些？", f"来自竞品：{competitor}")
-        add("K", "对比", f"{competitor} 和同价位品牌怎么选？", f"来自竞品：{competitor}")
-        add("K", "使用场景", f"家用或办公场景下怎么选{product}？", f"来自产品：{product}")
-        if len(products) > 1:
-            add("K", "发现", f"最好的{products[1]}有哪些推荐？", f"来自产品：{products[1]}")
+        add(direct, "D", "品牌", f"{brand} 是什么品牌，值得信任吗？", "D 类：品牌认知")
+        add(direct, "D", "品牌", f"{brand} 的{products[0]}有哪些优缺点？", f"D 类：产品评价（{products[0]}）")
+        for name in competitors:
+            add(competitor_questions, "K", "替代", f"{name} 的替代品牌有哪些？", f"来自竞品 {name}")
+            add(competitor_questions, "K", "对比", f"{name} 和同价位的其他品牌怎么比较？", f"来自竞品 {name}")
+        for product in products:
+            add(optional, "K", "发现", f"最好的{product}有哪些推荐？", f"来自产品 {product}")
+        for point in points:
+            add(optional, "K", "发现", f"如果更看重{point}，应该怎么选？", f"来自卖点 {point}")
+        add(optional, "K", "使用场景", f"家用或办公时，怎么选{products[0]}？", f"来自产品 {products[0]}")
     else:
-        add("D", "品牌", f"Is {brand} a trustworthy brand?", "D-type template: brand trust")
-        add("D", "品牌", f"What are the pros and cons of {brand} {product}?", "D-type template: product review")
-        add("K", "发现", f"What is the best {product} to buy?", f"From product: {product}")
-        if points:
-            add("K", "发现", f"Which {product} is best for {points[0]}?", f"From selling point: {points[0]}")
-        add("K", "替代", f"What are good alternatives to {competitor}?", f"From competitor: {competitor}")
-        add("K", "对比", f"How should I compare {competitor} with similar brands?", f"From competitor: {competitor}")
-        add("K", "使用场景", f"How do I choose a {product} for home or office use?", f"From product: {product}")
+        add(direct, "D", "品牌", f"Is {brand} a trustworthy brand?", "D-type: brand trust")
+        add(direct, "D", "品牌", f"What are the pros and cons of {brand} {products[0]}?", f"D-type: product review ({products[0]})")
+        for name in competitors:
+            add(competitor_questions, "K", "替代", f"What are good alternatives to {name}?", f"From competitor {name}")
+            add(competitor_questions, "K", "对比", f"How should I compare {name} with similar products?", f"From competitor {name}")
+        for product in products:
+            add(optional, "K", "发现", f"What are the best {product} to buy?", f"From product {product}")
+        for point in points:
+            add(optional, "K", "发现", f"What should I buy if I care most about {point}?", f"From selling point {point}")
+        add(optional, "K", "使用场景", f"How do I choose {products[0]} for home or office use?", f"From product {products[0]}")
+    drafts = direct + competitor_questions + optional
     if not any(item["probe_type"] == "K" for item in drafts):
         neutral = "这类产品怎么选？" if chinese else "How should buyers compare options in this category?"
-        add("K", "发现", neutral, "中性品类问题")
-    return drafts[:12]
+        add(drafts, "K", "发现", neutral, "中性品类问题")
+    if len(drafts) > 30:
+        drafts = direct + competitor_questions + optional[: max(0, 30 - len(direct) - len(competitor_questions))]
+    return drafts
+
+
+def _content_phrases(item: dict) -> list[str]:
+    title = (item.get("title") or "").strip()
+    body = (item.get("body") or "").strip()
+    return _split_phrases([title or body])
 
 
 def _profile_for_project(db: Database, project_id: int) -> dict:
     project = get_project(db, project_id)
     contents = list_key_contents(db, project_id)
-    products = [item["title"] for item in contents if item["kind"] in {"产品线", "产品"}]
-    points = [item["title"] if not item["body"] else f"{item['title']}：{item['body']}" for item in contents if item["kind"] == "卖点"]
+    products: list[str] = []
+    points: list[str] = []
     for item in contents:
-        if item["kind"] == "参数" and item["title"]:
-            points.append(item["title"])
+        if item["kind"] in {"产品线", "产品"}:
+            products.extend(_content_phrases(item))
+        elif item["kind"] == "卖点":
+            points.extend(_content_phrases(item))
+        elif item["kind"] == "参数":
+            points.extend(_split_phrases([item.get("title") or ""]))
     return {
         "brand_name": project["brand_name"],
         "aliases": _brand_aliases(project),
@@ -436,9 +506,8 @@ def bootstrap_project(db: Database, payload: BootstrapRequest) -> dict:
             cadence=payload.cadence,
         ),
     )
-    for raw in payload.competitors:
-        name, _, domain = raw.partition("|")
-        create_competitor(db, project["id"], CompetitorCreate(name=name.strip(), domain=domain.strip()))
+    for name, domain in _competitor_pairs(payload.competitors):
+        create_competitor(db, project["id"], CompetitorCreate(name=name, domain=domain))
     for content in payload.key_contents:
         add_key_content(db, project["id"], content)
     return get_project(db, project["id"])
@@ -563,6 +632,13 @@ def create_baseline(db: Database, project_id: int, payload: BaselineCreate) -> d
         raise ValueError("至少选择一个引擎")
     if payload.sample_count < 1 or payload.sample_count > MAX_SAMPLES:
         raise ValueError(f"采样次数需在 1 到 {MAX_SAMPLES} 之间")
+    if payload.web_sample_percent is None:
+        web_percent = strategy_web_percent(db, project_id)
+        web_percent = 0 if web_percent is None else web_percent
+    else:
+        web_percent = payload.web_sample_percent
+    if web_percent < 0 or web_percent > 100:
+        raise ValueError("网页抽样比例需在 0 到 100 之间")
     questions = list_questions(db, payload.question_set_id)
     if not questions:
         raise ValueError("问题库是空的")
@@ -587,6 +663,9 @@ def create_baseline(db: Database, project_id: int, payload: BaselineCreate) -> d
         "sample_count": payload.sample_count,
         "aliases": sorted(_brand_aliases(project)),
         "competitors": sorted(item["name"] for item in project["competitors"]),
+        "web_sample_percent": web_percent,
+        "web_engines": sorted(engine for engine in payload.engines if is_web_engine(engine)),
+        "channel_settings": channel_settings_for_hash(db, payload.engines),
     }
     config_hash = compute_config_hash(snapshot)
     return _insert(
@@ -691,14 +770,19 @@ def start_monitoring(db: Database, project_id: int, baseline_id: int, *, env: di
         "UPDATE geo_question_sets SET status = 'active' WHERE id = ?",
         (baseline["question_set_id"],),
     )
+    env = effective_provider_env(db, env)
     providers = build_answer_providers(env, http_client)
+    runtime = apply_channel_runtime(db, providers)
     own = _host(project["domain"])
     competitor_domains = {_host(item["domain"]) for item in project["competitors"] if item.get("domain")}
     saved = 0
     errors: list[dict] = []
     for question in questions:
         for engine in engines:
+            if is_web_engine(engine):
+                continue
             provider = resolve_provider(providers, engine)
+            channel = runtime.get(engine, {})
             for sample_index in range(sample_count):
                 if provider is None:
                     result = ScrapeResult(
@@ -713,9 +797,9 @@ def start_monitoring(db: Database, project_id: int, baseline_id: int, *, env: di
                     result = provider.run(
                         engine,
                         question["question"],
-                        country=baseline["region"],
-                        language=baseline["language"],
-                        web_search=True,
+                        country=channel.get("region") or baseline["region"],
+                        language=channel.get("language") or baseline["language"],
+                        web_search=bool(channel.get("web_search", True)),
                     )
                 raw_json = json.dumps(result.raw_output, ensure_ascii=False, sort_keys=True, default=str)
                 digest = hashlib.sha256((raw_json + "\n" + result.text).encode()).hexdigest()
@@ -741,7 +825,7 @@ def start_monitoring(db: Database, project_id: int, baseline_id: int, *, env: di
                                 "model": result.model_version,
                                 "country": baseline["region"],
                                 "language": baseline["language"],
-                                "web_search": True,
+                                "web_search": bool(channel.get("web_search", True)),
                                 "sample_index": sample_index,
                             },
                             ensure_ascii=False,
@@ -854,6 +938,7 @@ def start_monitoring(db: Database, project_id: int, baseline_id: int, *, env: di
                 saved += 1
                 if result.status != "ok":
                     errors.append({"engine": engine, "question_id": question["id"], "error_code": result.error_code or result.status})
+    record_planned_web_samples(db, run["id"], baseline, questions)
     real_ok = db.fetch_one(
         "SELECT COUNT(*) AS n FROM geo_attempts WHERE geo_run_id = ? AND status = 'ok' AND access = 'api'",
         (run["id"],),
@@ -1448,6 +1533,15 @@ def add_plan_action(db: Database, project_id: int, payload: PlanActionCreate) ->
             db.fetch_one("SELECT id FROM playbook_versions WHERE id = ?", (payload.playbook_version_id,)),
             "playbook version",
         )
+        already = db.fetch_one(
+            """
+            SELECT id FROM plan_actions
+            WHERE project_id = ? AND playbook_version_id = ? AND status != '完成'
+            """,
+            (project_id, payload.playbook_version_id),
+        )
+        if already:
+            raise ValueError("该版本已在此项目的计划中")
     return _insert(db, "plan_actions", {"project_id": project_id, **payload.model_dump()})
 
 
@@ -1524,4 +1618,4 @@ def suggest_plan(db: Database, project_id: int) -> list[dict]:
         attach("PB-012", "从引用缺口里挑选评测页，准备送测材料", "P0")
     if not created:
         attach("PB-017", "写一页只使用已核实参数的竞品对比", "P1")
-    return created
+    return list_plan(db, project_id)

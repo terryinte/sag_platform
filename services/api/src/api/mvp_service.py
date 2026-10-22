@@ -790,6 +790,8 @@ def _format_number(value: float | int | None) -> str:
 
 
 def render_report_html(db: Database, project_id: int, report_id: int | None = None) -> str:
+    from api.collection_settings import collection_method_note
+
     project = get_project(db, project_id)
     commitments = list_commitments(db, project_id)
     dashboard = project_dashboard(db, project_id)
@@ -1061,7 +1063,7 @@ table {{ width:100%; border-collapse:collapse; margin:14px 0 24px; font-size:12p
   </div>
   <div class="note"><b>独立性声明：</b>测评结论仅依据本报告列明的第三方数据与留存证据；平台不把单次AI回答视为稳定排名，也不把不可归因数据强行计入服务商成果。</div>
   <h3>方法与局限</h3>
-  <p>D 类问题会直接点名品牌，只用来检查 AI 的描述是否准确，不能拿来计算自然发现率。K 类问题不点名品牌，提及率、推荐率和首位率只在这类问题上统计。分母只包含成功解析的样本，模拟结果、缺少密钥而跳过的调用、以及证据校验失败的样本会单独列出，不混进比率。推荐和首位必须能在原始回答里找到对应原句，而且同一条回答里只能有一个“唯一第一”。引擎返回的结构化引用才计入来源，正文里的普通链接不算。引用不代表来源正确，也不代表它对排序有因果作用。每题少数几次采样不能当成统计显著的结论。官方 API 打开联网搜索后的结果，和用户在网页或 App 里看到的结果不一定相同；浏览器采集尚未启用，报告里会分开标注通道。</p>
+  <p>D 类问题会直接点名品牌，只用来检查 AI 的描述是否准确，不能拿来计算自然发现率。K 类问题不点名品牌，提及率、推荐率和首位率只在这类问题上统计。分母只包含成功解析的样本，模拟结果、缺少密钥而跳过的调用、以及证据校验失败的样本会单独列出，不混进比率。推荐和首位必须能在原始回答里找到对应原句，而且同一条回答里只能有一个“唯一第一”。引擎返回的结构化引用才计入来源，正文里的普通链接不算。引用不代表来源正确，也不代表它对排序有因果作用。每题少数几次采样不能当成统计显著的结论。官方 API 打开联网搜索后的结果，和用户在网页或 App 里看到的结果不一定相同；浏览器采集尚未启用，报告里会分开标注通道。{html.escape(collection_method_note(db, project_id))}</p>
 
   <h2>四、SEO现状详细测评</h2>
   <h3>SEO 指标详细内容与时间序列</h3>

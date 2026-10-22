@@ -220,6 +220,34 @@ class BaselineCreate(BaseModel):
     language: str = "zh-CN"
     region: str = "中国大陆"
     sample_count: int = 1
+    web_sample_percent: int | None = None
+
+
+class ChannelUpdate(BaseModel):
+    enabled: bool | None = None
+    api_key: str | None = None
+    api_secret: str | None = None
+    clear_key: bool = False
+    model: str | None = None
+    web_search: bool | None = None
+    region: str | None = None
+    language: str | None = None
+    concurrency: int | None = None
+    rate_limit_rpm: int | None = None
+    budget_cap_usd: float | None = None
+
+
+class StrategyUpdate(BaseModel):
+    channels: list[str] = Field(default_factory=list)
+    sample_count: int = 1
+    cadence: str = "monthly"
+    web_sample_percent: int = 15
+
+
+class BudgetEstimateRequest(BaseModel):
+    engines: list[str] = Field(default_factory=list)
+    sample_count: int = 1
+    question_set_id: int | None = None
 
 
 class MonitorRequest(BaseModel):

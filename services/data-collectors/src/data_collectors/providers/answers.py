@@ -423,7 +423,17 @@ class BrowserCollectorStub:
 
     id = "browser"
     access = "scraped"
-    engines = ("ChatGPT 网页", "Google AI 概览", "Google AI Mode", "Copilot")
+    engines = (
+        "ChatGPT 网页",
+        "Perplexity 网页",
+        "Gemini 网页",
+        "豆包",
+        "元宝",
+        "Kimi 网页",
+        "Google AI 概览",
+        "Google AI Mode",
+        "Copilot",
+    )
     configured = True
 
     def supports(self, engine: str) -> bool:

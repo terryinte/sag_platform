@@ -6,6 +6,14 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 
 from api.database import Database
+from api.collection_settings import (
+    estimate_budget,
+    get_strategy,
+    list_channels,
+    probe_channel,
+    save_strategy,
+    update_channel,
+)
 from api.geo_platform import (
     add_key_content,
     add_outcome,
@@ -37,6 +45,8 @@ from api.geo_platform import (
 from api.mvp_models import (
     BaselineCreate,
     BootstrapRequest,
+    BudgetEstimateRequest,
+    ChannelUpdate,
     GenerateQuestionsRequest,
     GeoQuestionUpdate,
     KeyContentCreate,
@@ -46,7 +56,9 @@ from api.mvp_models import (
     PlaybookCreate,
     PlaybookVersionCreate,
     ProjectProfileUpdate,
+    StrategyUpdate,
 )
+from api.mvp_service import get_project
 from api.settings import settings
 
 _STATIC = Path(__file__).parent / "geo_static"
@@ -107,6 +119,33 @@ def register_geo_routes(application: FastAPI, database: Database) -> None:
     @application.get("/api/geo/collection-catalog")
     def geo_catalog() -> list[dict]:
         return collection_catalog()
+
+    @application.get("/api/geo/channels")
+    def geo_channels() -> list[dict]:
+        return list_channels(database, provider_env_from_settings(settings))
+
+    @application.put("/api/geo/channels/{channel_id}")
+    def geo_channel_update(channel_id: str, payload: ChannelUpdate) -> dict:
+        return update_channel(database, channel_id, payload, provider_env_from_settings(settings))
+
+    @application.post("/api/geo/channels/{channel_id}/test")
+    def geo_channel_test(channel_id: str) -> dict:
+        return probe_channel(database, channel_id, provider_env_from_settings(settings))
+
+    @application.get("/api/projects/{project_id}/collection-strategy")
+    def geo_strategy(project_id: int) -> dict:
+        get_project(database, project_id)
+        return get_strategy(database, project_id)
+
+    @application.put("/api/projects/{project_id}/collection-strategy")
+    def geo_strategy_save(project_id: int, payload: StrategyUpdate) -> dict:
+        get_project(database, project_id)
+        return save_strategy(database, project_id, payload)
+
+    @application.post("/api/projects/{project_id}/geo/budget-estimate")
+    def geo_budget(project_id: int, payload: BudgetEstimateRequest) -> dict:
+        get_project(database, project_id)
+        return estimate_budget(database, project_id, payload)
 
     @application.post("/api/geo/bootstrap", status_code=201)
     def geo_bootstrap(payload: BootstrapRequest) -> dict:

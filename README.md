@@ -38,6 +38,8 @@ export KIMI_API_KEY="..."
 
 `OPENROUTER_API_KEY` 与千帆密钥仍用于原有批量采样，也可在工作台里作为 OpenRouter / 文心通道。
 
+采集通道页可以保存密钥。保存前要设置 `SAG_SECRET_KEY`，密钥加密后入库，接口只返回末四位。环境变量里的密钥优先于页面上保存的密钥。未设置 `SAG_SECRET_KEY` 时拒绝保存，并提示先配置该变量。
+
 部分测量口径参考了 NiubiGEO（Apache-2.0，https://github.com/Albert-Weasker/niubigeo ）。采集通道的划分参考了公开的 Elmo 设计思路，并用 Python 重写，没有拷贝其代码。
 
 ## Requirements

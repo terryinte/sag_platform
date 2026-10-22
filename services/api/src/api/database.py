@@ -314,6 +314,35 @@ CREATE TABLE IF NOT EXISTS budget_ledger (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS collection_channels (
+    channel_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    api_key_enc TEXT NOT NULL DEFAULT '',
+    key_last4 TEXT NOT NULL DEFAULT '',
+    secret_last4 TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    web_search INTEGER NOT NULL DEFAULT 1,
+    region TEXT NOT NULL DEFAULT '',
+    language TEXT NOT NULL DEFAULT '',
+    concurrency INTEGER NOT NULL DEFAULT 2,
+    rate_limit_rpm INTEGER NOT NULL DEFAULT 30,
+    budget_cap_usd REAL,
+    last_status TEXT NOT NULL DEFAULT '',
+    last_latency_ms INTEGER,
+    last_error TEXT NOT NULL DEFAULT '',
+    last_tested_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS project_collection_strategies (
+    project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    channels_json TEXT NOT NULL DEFAULT '[]',
+    sample_count INTEGER NOT NULL DEFAULT 1,
+    cadence TEXT NOT NULL DEFAULT 'monthly',
+    web_sample_percent INTEGER NOT NULL DEFAULT 15,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);
 CREATE INDEX IF NOT EXISTS idx_commitments_project ON commitments(project_id);
 CREATE INDEX IF NOT EXISTS idx_seo_metrics_project_date ON seo_metrics(project_id, captured_at);

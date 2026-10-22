@@ -35,5 +35,6 @@ label{font-size:12px;color:var(--mut);display:block;margin:10px 0 4px}
 .toast{position:fixed;right:20px;bottom:20px;background:#0f172a;color:#fff;padding:10px 14px;border-radius:8px;display:none;z-index:9}
 .toast.show{display:block}
 .hl{background:#fef08a;padding:0 2px}
+.channels{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
 .arch{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}.box{border:1px solid #c7d2fe;background:var(--pri2);border-radius:10px;padding:10px 12px;font-size:12px;flex:1;min-width:160px}.box b{display:block;font-size:13px;margin-bottom:4px;color:#3730a3}
 @media(max-width:900px){.side{position:relative;width:auto;min-height:0}.main{margin-left:0}.g4,.g3,.g2,.g21{grid-template-columns:1fr}}
