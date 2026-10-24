@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.0,<9.0",
 ]
+browser = [
+    "playwright>=1.49,<2",
+]
 
 [project.scripts]
 data-collectors = "data_collectors.cli:main"

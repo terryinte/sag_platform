@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
+import struct
+import zlib
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from api.database import Database
 from api.models import AnalyzeRequest, AnalyzeResponse, CollectRequest, CollectResponse
@@ -62,10 +64,26 @@ from api.mvp_service import (
     update_commitment,
     update_project,
 )
+from api.geo_routes import geo_page_html, register_geo_routes
 from api.mvp_ui import render_mvp_page
 from api.services import analyze_service, collect_service
 from api.settings import settings
 from api.ui import render_usage_page
+
+
+def _favicon_png() -> bytes:
+    size = 16
+    rgba = bytes((49, 46, 129, 255))
+    raw = b"".join(b"\x00" + rgba * size for _ in range(size))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+_FAVICON_PNG = _favicon_png()
 
 
 def create_app(database_path: str | Path | None = None) -> FastAPI:
@@ -73,6 +91,7 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     database = Database(database_path or settings.database_path)
     database.initialize()
     application.state.database = database
+    register_geo_routes(application, database)
 
     @application.exception_handler(RuntimeError)
     async def runtime_error_handler(_: Request, exc: RuntimeError) -> JSONResponse:
@@ -90,12 +109,20 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
     async def integrity_error_handler(_: Request, exc: sqlite3.IntegrityError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    @application.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> Response:
+        return Response(_FAVICON_PNG, media_type="image/png")
+
     @application.get("/", response_class=HTMLResponse)
     def mvp_page() -> str:
-        return render_mvp_page()
+        return geo_page_html()
 
     @application.get("/ui", response_class=HTMLResponse)
     def mvp_ui_alias() -> str:
+        return geo_page_html()
+
+    @application.get("/workbench", response_class=HTMLResponse)
+    def legacy_workbench() -> str:
         return render_mvp_page()
 
     @application.get("/console", response_class=HTMLResponse)

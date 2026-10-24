@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SAG 测评台 · GEO</title>
+  <link rel="icon" href="/favicon.ico" type="image/png">
+  <link rel="stylesheet" href="/geo-static/style.css">
+</head>
+<body>
+<nav class="side">
+  <div class="logo">SAG 测评台 <span>GEO</span></div>
+  <div class="grp">概览</div>
+  <button class="navbtn" data-page="clients" data-nav="clients" type="button">① 客户 / 项目列表</button>
+  <button class="navbtn" data-page="wizard" data-nav="wizard" type="button">＋ 新建项目向导</button>
+  <button class="navbtn" data-page="config" data-nav="config" type="button">② 项目配置</button>
+  <button class="navbtn" data-page="runs" data-nav="runs" type="button">③ 采集任务监控</button>
+  <button class="navbtn" data-page="runs" data-nav="geo-check" type="button">GEO检测</button>
+  <div class="grp">分析</div>
+  <button class="navbtn" data-page="dashboard" data-nav="dashboard" type="button">④ 可见度总览</button>
+  <button class="navbtn" data-page="sources" data-nav="sources" type="button">⑤ 引用来源分析</button>
+  <button class="navbtn" data-page="answer" data-nav="answer" type="button">⑥ 回答详情与复核</button>
+  <button class="navbtn" data-page="assessment" data-nav="assessment" type="button">评分与建议</button>
+  <div class="grp">交付</div>
+  <button class="navbtn" data-page="plan" data-nav="plan" type="button">⑦ 30 天改进计划</button>
+  <button class="navbtn" data-page="report" data-nav="report" type="button">⑧ 报告预览 / 导出</button>
+  <button class="navbtn" data-page="playbooks" data-nav="playbooks" type="button">整改建议库</button>
+  <div class="grp">技术方案</div>
+  <button class="navbtn" data-page="collection" data-nav="collection" type="button">采集方案总表</button>
+  <button class="navbtn" data-page="architecture" data-nav="architecture" type="button">技术架构</button>
+  <div class="grp">系统 / 设置</div>
+  <button class="navbtn" data-page="channels" data-nav="channels" type="button">采集通道</button>
+  <div class="grp">沿用能力</div>
+  <button class="navbtn" data-page="keywords" data-nav="keywords" type="button">添加测试关键词</button>
+  <a class="navbtn" href="/workbench" style="display:block">经典测评台</a>
+</nav>
+<div class="main">
+  <div class="top">
+    <div class="crumb"><b id="crumb">客户 / 项目</b>
+      <select id="project-select" style="width:auto;margin-left:10px;padding:4px 8px"></select>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" id="seed-demo" type="button">载入演示</button>
+      <button class="btn pri" id="new-project" type="button">＋ 新建项目</button>
+    </div>
+  </div>
+  <div class="tabbar" id="tabs"></div>
+  <div id="panel"></div>
+  <div class="foot">SAG GEO 内部工作台 · 缺少 API 密钥时采集会跳过并标明模拟，不代表真实联网结果。</div>
+</div>
+<div class="toast" id="toast"></div>
+<script>const DEMO_URL="/api/demo/seed";</script>
+<script src="/geo-static/app.js"></script>
+</body>
+</html>
