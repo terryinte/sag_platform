@@ -3,7 +3,8 @@
 Missing credentials return a skipped mock result. Transport and parse failures
 return an error result. Callers can persist either outcome; ``run`` does not raise.
 
-P1 browser collection is only a stub. It does not launch Playwright or Camoufox.
+Web channels call the Playwright collector in ``browser.py``. Google AI 概览,
+Google AI Mode, and Copilot stay stubs and do not launch a browser.
 """
 
 from __future__ import annotations
@@ -419,7 +420,7 @@ class QianfanAnswerProvider:
 
 
 class BrowserCollectorStub:
-    """P1 interface stub. Real Playwright + Camoufox collection is not implemented."""
+    """Browser AnswerProvider. Real web engines use Playwright; the rest stay stubs."""
 
     id = "browser"
     access = "scraped"
@@ -448,6 +449,16 @@ class BrowserCollectorStub:
         language: str = "en-US",
         web_search: bool = True,
     ) -> ScrapeResult:
+        from data_collectors.providers.browser import REAL_ENGINES, collect_browser_answer
+
+        if engine in REAL_ENGINES:
+            return collect_browser_answer(
+                engine,
+                prompt,
+                country=country,
+                language=language,
+                web_search=web_search,
+            )
         return ScrapeResult(
             provider_id=self.id,
             engine=engine,

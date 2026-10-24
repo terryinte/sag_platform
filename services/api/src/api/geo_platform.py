@@ -1,7 +1,8 @@
 """Internal GEO workflow: project setup, D/K questions, monitoring, playbooks.
 
 Collection reuses the shared answer-provider interface. Missing API keys are
-recorded as skipped mocks. Browser collection stays a stub.
+recorded as skipped mocks. Enabled web channels use the Playwright skeleton;
+disabled ones stay planned stubs.
 """
 
 from __future__ import annotations
@@ -62,7 +63,12 @@ MAX_SAMPLES = 5
 
 COLLECTION_CATALOG = [
     {"platform": "ChatGPT（API）", "method": "OpenAI Responses API，tools=web_search", "citations": "annotations.url_citation", "third_party": "无", "difficulty": "低", "risk": "低（官方 API）", "cost": "按官方搜索与 token 计费", "phase": "P0", "notes": "API 结果不等于 chatgpt.com 网页结果"},
-    {"platform": "ChatGPT 网页", "method": "Playwright + Camoufox 接口（未实现）", "citations": "页面来源卡片", "third_party": "住宅代理、验证码", "difficulty": "高", "risk": "高（服务条款与封号）", "cost": "代理与账号", "phase": "P1", "notes": "当前只保留接口，不启动浏览器"},
+    {"platform": "ChatGPT 网页", "method": "Playwright 无头 Chromium，可选 Camoufox", "citations": "页面正文与截图", "third_party": "可选代理 GEO_BROWSER_PROXY", "difficulty": "高", "risk": "高（服务条款与封号）", "cost": "代理与账号", "phase": "P1", "notes": "通道启用后才打开浏览器；失败记 browser_unavailable"},
+    {"platform": "Perplexity 网页", "method": "Playwright 无头 Chromium", "citations": "页面正文与截图", "third_party": "可选代理", "difficulty": "高", "risk": "高", "cost": "代理与账号", "phase": "P1", "notes": "只抽样核心问题；未启用时记 browser_stub"},
+    {"platform": "Gemini 网页", "method": "Playwright 无头 Chromium", "citations": "页面正文与截图", "third_party": "可选代理", "difficulty": "高", "risk": "高", "cost": "代理与账号", "phase": "P1", "notes": "登录态只作为会话备注，CI 不强制登录"},
+    {"platform": "豆包", "method": "Playwright 无头 Chromium", "citations": "页面正文与截图", "third_party": "可选代理", "difficulty": "高", "risk": "高", "cost": "代理与账号", "phase": "P1", "notes": "并发固定为 1"},
+    {"platform": "元宝", "method": "Playwright 无头 Chromium", "citations": "页面正文与截图", "third_party": "可选代理", "difficulty": "高", "risk": "高", "cost": "代理与账号", "phase": "P1", "notes": "截图失败不阻断该条"},
+    {"platform": "Kimi 网页", "method": "Playwright 无头 Chromium", "citations": "页面正文与截图", "third_party": "可选代理", "difficulty": "高", "risk": "高", "cost": "代理与账号", "phase": "P1", "notes": "Playwright 未安装时记 browser_unavailable"},
     {"platform": "Perplexity", "method": "Agent API + web_search", "citations": "search_results", "third_party": "无", "difficulty": "低", "risk": "低", "cost": "按官方 web_search 与 token 计费", "phase": "P0", "notes": "返回格式变化时只替换抽取器"},
     {"platform": "Gemini", "method": "Gemini API + Google Search grounding", "citations": "groundingChunks / webSearchQueries", "third_party": "无", "difficulty": "低", "risk": "低", "cost": "按官方 grounding 计费", "phase": "P0", "notes": "vertexaisearch 重定向链接按原样保存，不在采集时跟随跳转"},
     {"platform": "Google AI 概览", "method": "无官方 API，浏览器采集接口", "citations": "来源卡片", "third_party": "代理或备选 SERP", "difficulty": "高", "risk": "高", "cost": "未启用", "phase": "P1", "notes": "出现与否都要记录；当前为 stub"},
@@ -530,6 +536,8 @@ def add_key_content(db: Database, project_id: int, payload: KeyContentCreate) ->
     get_project(db, project_id)
     values = payload.model_dump()
     values["confirmed"] = int(bool(values["confirmed"]))
+    if values.get("source") not in {"manual", "site_crawl"}:
+        values["source"] = "manual"
     return _insert(db, "project_key_contents", {"project_id": project_id, **values})
 
 
@@ -1153,9 +1161,12 @@ def _summarize_run(db: Database, project: dict, run: dict) -> dict:
         for cell in row["cells"].values():
             cell["text"] = f"{cell['mentioned']}/{cell['valid']}"
     summary["k"] = _rate_block(k_flags)
+    d_rates = _rate_block(d_flags)
     summary["d"] = {
-        "n_valid": len(d_flags),
-        "mention_rate": _rate_block(d_flags)["mention_rate"],
+        "n_valid": d_rates["n_valid"],
+        "mention_rate": d_rates["mention_rate"],
+        "recommend_rate": d_rates["recommend_rate"],
+        "first_rate": d_rates["first_rate"],
         "note": "D 类直接点名品牌，不能当作自然发现率",
     }
     total_share = sum(share_counts.values())
@@ -1216,9 +1227,12 @@ def _legacy_summary(summary: dict, responses: list[dict]) -> dict:
     k_rows = [item for item in responses if (item.get("probe_type") or "K") != "D"]
     d_rows = [item for item in responses if item.get("probe_type") == "D"]
     summary["k"] = _rate_block(k_rows)
+    d_rates = _rate_block(d_rows)
     summary["d"] = {
-        "n_valid": len(d_rows),
-        "mention_rate": _rate_block(d_rows)["mention_rate"],
+        "n_valid": d_rates["n_valid"],
+        "mention_rate": d_rates["mention_rate"],
+        "recommend_rate": d_rates["recommend_rate"],
+        "first_rate": d_rates["first_rate"],
         "note": "D 类直接点名品牌，不能当作自然发现率",
     }
     summary["legacy_mention_rate"] = summary["k"]["mention_rate"]
@@ -1247,6 +1261,72 @@ def project_visibility(db: Database, project_id: int) -> dict:
     elif current["config_hash"] != previous["config_hash"]:
         current["compare_note"] = "口径变化：配置哈希不同，不能把两期比率直接相减"
     return current
+
+
+def aggregate_trends(points: list[dict]) -> dict:
+    """Keep the time series on the latest run's config_hash only."""
+    if not points:
+        return {"config_hash": None, "series": [], "excluded": []}
+    ordered = sorted(points, key=lambda item: (item.get("run_at") or "", item.get("run_id") or 0))
+    latest_hash = ordered[-1].get("config_hash")
+    series = []
+    excluded = []
+    for item in ordered:
+        if item.get("config_hash") == latest_hash:
+            series.append({**item, "comparable": True})
+        else:
+            excluded.append(
+                {
+                    "run_id": item.get("run_id"),
+                    "run_at": item.get("run_at"),
+                    "config_hash": item.get("config_hash"),
+                    "reason": "口径变化：配置哈希不同，不进入趋势线",
+                }
+            )
+    return {"config_hash": latest_hash, "series": series, "excluded": excluded}
+
+
+def _trend_point(summary: dict, run: dict) -> dict:
+    return {
+        "run_id": run["id"],
+        "run_at": run.get("run_at"),
+        "status": run.get("status"),
+        "config_hash": summary.get("config_hash"),
+        "k_mention": summary["k"]["mention_rate"],
+        "d_recommend": summary["d"].get("recommend_rate"),
+        "first_rate": summary["k"]["first_rate"],
+    }
+
+
+def project_trends(db: Database, project_id: int) -> dict:
+    project = get_project(db, project_id)
+    runs = db.fetch_all(
+        "SELECT * FROM geo_runs WHERE project_id = ? ORDER BY run_at, id",
+        (project_id,),
+    )
+    points = []
+    latest = None
+    for run in runs:
+        summary = _summarize_run(db, project, run)
+        points.append(_trend_point(summary, run))
+        latest = summary
+    aggregated = aggregate_trends(points)
+    competitors = []
+    if latest:
+        valid = latest["k"]["n_valid"] or 0
+        for item in latest.get("share") or []:
+            rate = round(item["count"] / valid * 100, 1) if valid else None
+            competitors.append(
+                {"name": item["name"], "count": item["count"], "mention_rate": rate, "share": item["share"]}
+            )
+    sources = project_sources(db, project_id)
+    return {
+        **aggregated,
+        "brand_name": project["brand_name"],
+        "competitors": competitors,
+        "gaps": sources["gaps"],
+        "sources_note": sources["note"],
+    }
 
 
 def project_sources(db: Database, project_id: int) -> dict:
@@ -1452,7 +1532,37 @@ def get_playbook(db: Database, playbook_id: int) -> dict:
         """,
         (playbook_id,),
     )
-    return {"playbook": playbook, "versions": versions, "actions": actions, "outcomes": outcomes}
+    version_usage = []
+    for version in versions:
+        projects = []
+        for action in actions:
+            if action.get("playbook_version_id") != version["id"]:
+                continue
+            related = [item for item in outcomes if item.get("plan_action_id") == action["id"]]
+            latest = related[0] if related else None
+            projects.append(
+                {
+                    "project_id": action["project_id"],
+                    "project_name": action["project_name"],
+                    "plan_action_id": action["id"],
+                    "status": action["status"],
+                    "success": None if latest is None else latest.get("success"),
+                    "delta": None if latest is None else latest.get("delta"),
+                    "metric_name": None if latest is None else latest.get("metric_name"),
+                    "before_run_id": None if latest is None else latest.get("before_run_id"),
+                    "after_run_id": None if latest is None else latest.get("after_run_id"),
+                    "before_value": None if latest is None else latest.get("before_value"),
+                    "after_value": None if latest is None else latest.get("after_value"),
+                }
+            )
+        version_usage.append({"version_id": version["id"], "version": version["version"], "projects": projects})
+    return {
+        "playbook": playbook,
+        "versions": versions,
+        "actions": actions,
+        "outcomes": outcomes,
+        "version_usage": version_usage,
+    }
 
 
 def create_playbook(db: Database, payload: PlaybookCreate) -> dict:
@@ -1515,7 +1625,13 @@ def list_plan(db: Database, project_id: int) -> list[dict]:
     get_project(db, project_id)
     return db.fetch_all(
         """
-        SELECT a.*, pb.code AS playbook_code, pb.title AS playbook_title, pv.version AS playbook_version
+        SELECT a.*, pb.code AS playbook_code, pb.title AS playbook_title, pv.version AS playbook_version,
+               (SELECT delta FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_delta,
+               (SELECT before_value FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_before_value,
+               (SELECT after_value FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_after_value,
+               (SELECT before_run_id FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_before_run_id,
+               (SELECT after_run_id FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_after_run_id,
+               (SELECT success FROM playbook_outcomes WHERE plan_action_id = a.id ORDER BY id DESC LIMIT 1) AS outcome_success
         FROM plan_actions a
         LEFT JOIN playbook_versions pv ON pv.id = a.playbook_version_id
         LEFT JOIN playbooks pb ON pb.id = pv.playbook_id
@@ -1545,11 +1661,91 @@ def add_plan_action(db: Database, project_id: int, payload: PlanActionCreate) ->
     return _insert(db, "plan_actions", {"project_id": project_id, **payload.model_dump()})
 
 
+def closed_loop_metrics(before: dict, after: dict, metric_name: str = "k_mention_rate") -> dict:
+    """Turn two rate snapshots into the stored outcome columns."""
+    key = {
+        "k_mention_rate": "k_mention",
+        "d_recommend_rate": "d_recommend",
+        "first_rate": "first_rate",
+    }.get(metric_name, "k_mention")
+    before_value = before.get(key)
+    after_value = after.get(key)
+    delta = None
+    if before_value is not None and after_value is not None:
+        delta = round(float(after_value) - float(before_value), 4)
+    return {
+        "before_value": before_value,
+        "after_value": after_value,
+        "delta": delta,
+        "success": None if delta is None else int(delta > 0),
+        "before_k_rate": before.get("k_mention"),
+        "after_k_rate": after.get("k_mention"),
+        "before_d_rate": before.get("d_recommend"),
+        "after_d_rate": after.get("d_recommend"),
+        "before_first_rate": before.get("first_rate"),
+        "after_first_rate": after.get("first_rate"),
+        "sample_n": after.get("n_valid"),
+    }
+
+
+def _rates_for_run(db: Database, project_id: int, run_id: int) -> dict:
+    run = _require(db.fetch_one("SELECT * FROM geo_runs WHERE id = ?", (run_id,)), "geo run")
+    if run["project_id"] != project_id:
+        raise ValueError("采集批次不属于该项目")
+    project = get_project(db, project_id)
+    summary = _summarize_run(db, project, run)
+    return {
+        "k_mention": summary["k"]["mention_rate"],
+        "d_recommend": summary["d"].get("recommend_rate"),
+        "first_rate": summary["k"]["first_rate"],
+        "n_valid": summary["k"]["n_valid"],
+    }
+
+
 def add_outcome(db: Database, plan_action_id: int, payload: OutcomeCreate) -> dict:
     action = _require(db.fetch_one("SELECT * FROM plan_actions WHERE id = ?", (plan_action_id,)), "plan action")
+    has_values = payload.before_value is not None and payload.after_value is not None
+    has_runs = payload.before_run_id is not None and payload.after_run_id is not None
+    if (payload.before_run_id is None) ^ (payload.after_run_id is None):
+        raise ValueError("行动前和行动后批次需要同时填写")
+    if (payload.before_value is None) ^ (payload.after_value is None) and not has_runs:
+        raise ValueError("前后数值需要同时填写")
+    if not has_values and not has_runs:
+        raise ValueError("记录结果需要前后数值，或行动前、行动后两次采集批次")
+    before_value = payload.before_value
+    after_value = payload.after_value
+    rate_columns = {
+        "before_k_rate": None,
+        "after_k_rate": None,
+        "before_d_rate": None,
+        "after_d_rate": None,
+        "before_first_rate": None,
+        "after_first_rate": None,
+    }
+    sample_n = payload.sample_n
+    if has_runs:
+        metrics = closed_loop_metrics(
+            _rates_for_run(db, action["project_id"], payload.before_run_id),
+            _rates_for_run(db, action["project_id"], payload.after_run_id),
+            payload.metric_name,
+        )
+        rate_columns = {
+            "before_k_rate": metrics["before_k_rate"],
+            "after_k_rate": metrics["after_k_rate"],
+            "before_d_rate": metrics["before_d_rate"],
+            "after_d_rate": metrics["after_d_rate"],
+            "before_first_rate": metrics["before_first_rate"],
+            "after_first_rate": metrics["after_first_rate"],
+        }
+        if not has_values:
+            before_value = metrics["before_value"]
+            after_value = metrics["after_value"]
+        if sample_n is None:
+            sample_n = metrics["sample_n"]
     delta = None
-    if payload.before_value is not None and payload.after_value is not None:
-        delta = round(payload.after_value - payload.before_value, 4)
+    if before_value is not None and after_value is not None:
+        delta = round(float(after_value) - float(before_value), 4)
+    success = None if delta is None else int(delta > 0)
     return _insert(
         db,
         "playbook_outcomes",
@@ -1558,13 +1754,44 @@ def add_outcome(db: Database, plan_action_id: int, payload: OutcomeCreate) -> di
             "playbook_version_id": action["playbook_version_id"],
             "project_id": action["project_id"],
             "metric_name": payload.metric_name,
-            "before_value": payload.before_value,
-            "after_value": payload.after_value,
+            "before_value": before_value,
+            "after_value": after_value,
             "delta": delta,
-            "sample_n": payload.sample_n,
+            "sample_n": sample_n,
             "note": payload.note,
+            "before_run_id": payload.before_run_id,
+            "after_run_id": payload.after_run_id,
+            "success": success,
+            **rate_columns,
         },
     )
+
+
+def closed_loop_note(db: Database, project_id: int) -> str:
+    rows = db.fetch_all(
+        """
+        SELECT o.metric_name, o.delta, o.success, a.action
+        FROM playbook_outcomes o
+        JOIN plan_actions a ON a.id = o.plan_action_id
+        WHERE o.project_id = ?
+        ORDER BY o.id DESC
+        LIMIT 5
+        """,
+        (project_id,),
+    )
+    if not rows:
+        return "闭环结果：还没有行动前后的对照记录。"
+    bits = []
+    for row in rows:
+        if row["success"] == 1:
+            label = "达成"
+        elif row["success"] == 0:
+            label = "未达成"
+        else:
+            label = "已记录"
+        delta = "—" if row["delta"] is None else row["delta"]
+        bits.append(f"{row['action']} {label}，{row['metric_name']} 变化 {delta}")
+    return "闭环结果：" + "；".join(bits) + "。这些变化只说明行动前后的相关，不证明因果。"
 
 
 def suggest_plan(db: Database, project_id: int) -> list[dict]:

@@ -9,8 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
@@ -26,7 +29,9 @@ from data_collectors.providers.answers import (
     OpenRouterAnswerProvider,
     PerplexityAgentProvider,
     QianfanAnswerProvider,
+    ScrapeResult,
 )
+from data_collectors.providers.browser import collect_browser_answer, browser_runtime_status
 
 API_UNIT_USD = 0.01
 
@@ -97,12 +102,13 @@ def _ensure_channels(db: Database) -> None:
     for spec in CHANNEL_SPECS:
         existing = db.fetch_one("SELECT channel_id FROM collection_channels WHERE channel_id = ?", (spec["id"],))
         if existing is None:
+            concurrency = 1 if spec["kind"] == "web" else 2
             db.execute(
                 """
                 INSERT INTO collection_channels (channel_id, model, web_search, concurrency, rate_limit_rpm)
-                VALUES (?, ?, 1, 2, 30)
+                VALUES (?, ?, 1, ?, 30)
                 """,
-                (spec["id"], spec.get("model") or ""),
+                (spec["id"], spec.get("model") or "", concurrency),
             )
 
 
@@ -160,7 +166,16 @@ def _effective(spec: dict, row: dict | None, env: dict) -> dict:
 
 def _public_status(spec: dict, row: dict | None, effective: dict) -> str:
     if spec["kind"] == "web":
-        return "未实现"
+        if not row or not row.get("enabled"):
+            return "未实现"
+        last = (row or {}).get("last_status") or ""
+        if last == "ok":
+            return "已连接"
+        if last == "unavailable":
+            return "浏览器不可用"
+        if last == "error":
+            return "错误"
+        return "已启用"
     if not effective["has_key"]:
         return "未配置"
     last = (row or {}).get("last_status") or ""
@@ -181,7 +196,7 @@ def _public(spec: dict, row: dict | None, env: dict) -> dict:
         "engine": spec["engine"],
         "kind": spec["kind"],
         "phase": spec["phase"],
-        "implemented": spec["kind"] == "api",
+        "implemented": spec["kind"] in {"api", "web"},
         "env_vars": list(spec.get("env") or []),
         "dual_key": bool(spec.get("dual")),
         "enabled": bool(row.get("enabled")),
@@ -192,6 +207,9 @@ def _public(spec: dict, row: dict | None, env: dict) -> dict:
         "concurrency": int(row.get("concurrency") or 2),
         "rate_limit_rpm": int(row.get("rate_limit_rpm") or 30),
         "budget_cap_usd": row.get("budget_cap_usd"),
+        "session_note": row.get("session_note") or "",
+        "timeout_seconds": int(row["timeout_seconds"]) if row.get("timeout_seconds") else (45 if spec["kind"] == "web" else None),
+        "proxy_env": "GEO_BROWSER_PROXY" if spec["kind"] == "web" else "",
         "key_last4": effective["key_last4"],
         "secret_last4": effective["secret_last4"],
         "key_source": effective["key_source"],
@@ -246,6 +264,16 @@ def update_channel(db: Database, channel_id: str, payload: ChannelUpdate, env: d
         if cap is not None and cap < 0:
             raise ValueError("单次预算上限不能为负数")
         values["budget_cap_usd"] = cap
+    if data.get("session_note") is not None:
+        note = data["session_note"].strip()
+        if len(note) > 4000:
+            raise ValueError("会话备注过长")
+        values["session_note"] = note
+    if data.get("timeout_seconds") is not None:
+        timeout = int(data["timeout_seconds"])
+        if timeout < 5 or timeout > 180:
+            raise ValueError("超时需在 5 到 180 秒之间")
+        values["timeout_seconds"] = timeout
     if data.get("clear_key"):
         values["api_key_enc"] = ""
         values["key_last4"] = ""
@@ -301,9 +329,18 @@ def probe_channel(db: Database, channel_id: str, env: dict | None = None, http_c
     rows = _rows(db)
     row = rows[channel_id]
     if spec["kind"] == "web":
-        _save_probe(db, channel_id, "unimplemented", None, "P1 网页通道尚未实现，未发起请求")
+        if not row.get("enabled"):
+            _save_probe(db, channel_id, "unimplemented", None, "网页通道未启用，未打开浏览器")
+            fresh = db.fetch_one("SELECT * FROM collection_channels WHERE channel_id = ?", (channel_id,))
+            return {"ok": False, "status": "未实现", "latency_ms": None, "error": "网页通道未启用，未打开浏览器", "channel": _public(spec, fresh, env)}
+        available, detail = browser_runtime_status()
+        if available:
+            _save_probe(db, channel_id, "ok", None, "")
+            fresh = db.fetch_one("SELECT * FROM collection_channels WHERE channel_id = ?", (channel_id,))
+            return {"ok": True, "status": "已连接", "latency_ms": None, "error": "", "channel": _public(spec, fresh, env)}
+        _save_probe(db, channel_id, "unavailable", None, detail)
         fresh = db.fetch_one("SELECT * FROM collection_channels WHERE channel_id = ?", (channel_id,))
-        return {"ok": False, "status": "未实现", "latency_ms": None, "error": "P1 网页通道尚未实现，未发起请求", "channel": _public(spec, fresh, env)}
+        return {"ok": False, "status": "浏览器不可用", "latency_ms": None, "error": detail, "channel": _public(spec, fresh, env)}
     effective = _effective(spec, row, env)
     if not effective["has_key"]:
         _save_probe(db, channel_id, "unconfigured", None, "没有环境变量或已保存的密钥")
@@ -409,6 +446,7 @@ def channel_settings_for_hash(db: Database, engines: list[str], env: dict | None
                 "concurrency": int(row["concurrency"]) if row else 2,
                 "rate_limit_rpm": int(row["rate_limit_rpm"]) if row else 30,
                 "budget_cap_usd": row.get("budget_cap_usd") if row else None,
+                "timeout_seconds": int(row["timeout_seconds"]) if row and row.get("timeout_seconds") else None,
                 "key_last4": effective["key_last4"],
                 "key_source": effective["key_source"],
             }
@@ -519,69 +557,176 @@ def estimate_budget(db: Database, project_id: int, payload: BudgetEstimateReques
     }
 
 
-def record_planned_web_samples(db: Database, run_id: int, baseline: dict, questions: list[dict]) -> int:
-    snapshot = json.loads(baseline.get("snapshot_json") or "{}")
-    percent = int(snapshot.get("web_sample_percent") or 0)
+def select_sampled_questions(questions: list[dict], percent: int) -> list[dict]:
+    """Core questions are D-type plus comparison, alternative, and brand K questions."""
     if percent <= 0 or not questions:
-        return 0
+        return []
     core = [
         question
         for question in questions
         if (question.get("probe_type") or "K") == "D" or (question.get("intent") or "") in {"对比", "替代", "品牌"}
     ]
-    if not core:
-        core = list(questions)
-    count = math.ceil(len(core) * percent / 100)
+    pool = core or list(questions)
+    count = math.ceil(len(pool) * percent / 100)
     if count <= 0:
+        return []
+    return sorted(pool, key=lambda question: question["id"])[:count]
+
+
+def _engine_slug(engine: str) -> str:
+    slug = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "-", engine).strip("-")
+    return slug or "web"
+
+
+def _insert_web_attempt(
+    db: Database,
+    *,
+    run_id: int,
+    question_id: int,
+    engine: str,
+    baseline: dict,
+    status: str,
+    error_code: str,
+    text: str,
+    payload: dict,
+    percent: int,
+) -> None:
+    request = {
+        "engine": engine,
+        "provider": "browser",
+        "planned_web_sample": True,
+        "sampled": True,
+        "web_sample_percent": percent,
+        "country": baseline.get("region") or "",
+        "language": baseline.get("language") or "",
+        "web_search": False,
+        "sample_index": 0,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    digest = hashlib.sha256((raw + "\n" + (text or "")).encode()).hexdigest()
+    db.execute(
+        """
+        INSERT INTO geo_attempts (
+            response_id, geo_run_id, question_id, platform, provider_id, engine,
+            attempt_no, sample_index, status, error_code, access, request_params_json,
+            raw_response, raw_payload_json, payload_sha256, web_queries_json,
+            model_version, config_hash, cost_usd
+        ) VALUES (
+            NULL, ?, ?, ?, 'browser', ?, 1, 0, ?, ?, 'scraped', ?,
+            ?, ?, ?, '[]', '', ?, NULL
+        )
+        """,
+        (
+            run_id,
+            question_id,
+            engine,
+            engine,
+            status,
+            error_code,
+            json.dumps(request, ensure_ascii=False),
+            text or "",
+            raw,
+            digest,
+            baseline.get("config_hash") or "",
+        ),
+    )
+
+
+def record_planned_web_samples(db: Database, run_id: int, baseline: dict, questions: list[dict]) -> int:
+    """Sample core questions for web engines.
+
+    Disabled channels stay on the browser_stub plan so existing batches do not
+    launch a browser. Enabled channels run one at a time. A missing browser is
+    stored as browser_unavailable and does not abort the batch.
+    """
+    snapshot = json.loads(baseline.get("snapshot_json") or "{}")
+    percent = int(snapshot.get("web_sample_percent") or 0)
+    picked = select_sampled_questions(questions, percent)
+    if not picked:
         return 0
-    picked = sorted(core, key=lambda question: question["id"])[:count]
     engines = list(snapshot.get("web_engines") or []) or ["ChatGPT 网页"]
+    rows = _rows(db)
     saved = 0
     for question in picked:
         for engine in engines:
-            payload = {
-                "engine": engine,
-                "provider": "browser",
-                "planned_web_sample": True,
-                "web_sample_percent": percent,
-                "message": "P1 浏览器采集只保留接口，本次只记录计划抽样，没有打开网页。",
-                "country": baseline.get("region") or "",
-                "language": baseline.get("language") or "",
-            }
-            raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-            digest = hashlib.sha256(raw.encode()).hexdigest()
-            request = {
-                "engine": engine,
-                "provider": "browser",
-                "planned_web_sample": True,
-                "web_sample_percent": percent,
-                "country": baseline.get("region") or "",
-                "language": baseline.get("language") or "",
-                "web_search": False,
-                "sample_index": 0,
-            }
-            db.execute(
-                """
-                INSERT INTO geo_attempts (
-                    response_id, geo_run_id, question_id, platform, provider_id, engine,
-                    attempt_no, sample_index, status, error_code, access, request_params_json,
-                    raw_response, raw_payload_json, payload_sha256, web_queries_json,
-                    model_version, config_hash, cost_usd
-                ) VALUES (
-                    NULL, ?, ?, ?, 'browser', ?, 1, 0, 'skipped', 'browser_stub', 'scraped', ?,
-                    '', ?, ?, '[]', '', ?, NULL
+            spec = _BY_ENGINE.get(engine)
+            row = rows.get(spec["id"]) if spec else None
+            enabled = bool(spec and spec["kind"] == "web" and row and row.get("enabled"))
+            if not enabled:
+                _insert_web_attempt(
+                    db,
+                    run_id=run_id,
+                    question_id=question["id"],
+                    engine=engine,
+                    baseline=baseline,
+                    status="skipped",
+                    error_code="browser_stub",
+                    text="",
+                    percent=percent,
+                    payload={
+                        "engine": engine,
+                        "provider": "browser",
+                        "planned_web_sample": True,
+                        "sampled": True,
+                        "web_sample_percent": percent,
+                        "message": "网页通道未启用，本次只记录计划抽样，没有打开网页。",
+                        "country": baseline.get("region") or "",
+                        "language": baseline.get("language") or "",
+                    },
                 )
-                """,
-                (
-                    run_id,
-                    question["id"],
+                saved += 1
+                continue
+            timeout = int(row.get("timeout_seconds") or 45)
+            artifact_dir = Path(os.environ.get("GEO_ARTIFACT_ROOT") or "data/artifacts") / str(run_id) / f"{question['id']}-{_engine_slug(engine)}"
+            try:
+                result = collect_browser_answer(
                     engine,
-                    engine,
-                    json.dumps(request, ensure_ascii=False),
-                    raw,
-                    digest,
-                    baseline.get("config_hash") or "",
-                ),
+                    question.get("question") or "",
+                    country=baseline.get("region") or "",
+                    language=baseline.get("language") or "",
+                    timeout=timeout,
+                    proxy=os.environ.get("GEO_BROWSER_PROXY") or "",
+                    session_note=row.get("session_note") or "",
+                    artifact_dir=artifact_dir,
+                )
+            except Exception as exc:
+                result = ScrapeResult(
+                    provider_id="browser",
+                    engine=engine,
+                    access="scraped",
+                    status="skipped",
+                    error_code="browser_unavailable",
+                    text="",
+                    raw_output={"message": str(exc)[:200]},
+                )
+            raw_output = result.raw_output if isinstance(result.raw_output, dict) else {}
+            _insert_web_attempt(
+                db,
+                run_id=run_id,
+                question_id=question["id"],
+                engine=engine,
+                baseline=baseline,
+                status=result.status or "skipped",
+                error_code=result.error_code or "",
+                text=result.text or "",
+                percent=percent,
+                payload={
+                    "engine": engine,
+                    "provider": "browser",
+                    "planned_web_sample": True,
+                    "sampled": True,
+                    "web_sample_percent": percent,
+                    "message": str(raw_output.get("message") or "")[:300],
+                    "implementation": raw_output.get("implementation") or "",
+                    "fallback": raw_output.get("fallback") or "",
+                    "html_path": raw_output.get("html_path") or "",
+                    "text_path": raw_output.get("text_path") or "",
+                    "screenshot_path": raw_output.get("screenshot_path") or "",
+                    "screenshot_error": raw_output.get("screenshot_error") or "",
+                    "session_note_applied": bool(raw_output.get("session_note_applied")),
+                    "country": baseline.get("region") or "",
+                    "language": baseline.get("language") or "",
+                },
             )
             saved += 1
     return saved
@@ -595,16 +740,22 @@ def collection_method_note(db: Database, project_id: int) -> str:
     if run is None:
         return "本期还没有采集记录，无法区分实际走过的 API 通道和网页抽样通道。"
     rows = db.fetch_all(
-        "SELECT engine, access, error_code FROM geo_attempts WHERE geo_run_id = ? ORDER BY id",
+        "SELECT engine, access, error_code, status FROM geo_attempts WHERE geo_run_id = ? ORDER BY id",
         (run["id"],),
     )
     api: list[str] = []
     web: list[str] = []
+    executed = 0
+    unavailable = 0
     for row in rows:
         engine = row["engine"]
-        if row["access"] == "scraped" or row["error_code"] == "browser_stub" or is_web_engine(engine):
+        if row["access"] == "scraped" or row["error_code"] in {"browser_stub", "browser_unavailable"} or is_web_engine(engine):
             if engine not in web:
                 web.append(engine)
+            if row["access"] == "scraped" and row["status"] == "ok":
+                executed += 1
+            if row["error_code"] == "browser_unavailable":
+                unavailable += 1
         elif engine not in api:
             api.append(engine)
     percent = None
@@ -622,9 +773,15 @@ def collection_method_note(db: Database, project_id: int) -> str:
         if percent
         else "本次快照没有设置网页抽样比例。"
     )
+    if executed:
+        web_state = f"其中 {executed} 条网页抽样已用浏览器采集骨架执行，截图失败不会单独让该条失败。"
+    elif unavailable:
+        web_state = "网页通道已启用，但浏览器不可用，相关尝试记为 browser_unavailable，批次继续。"
+    else:
+        web_state = "未启用的网页通道只记录计划抽样，不能当成用户在网页或 App 里看到的结果。"
     return (
         f"通道区分：API 通道（含缺少密钥而模拟跳过的官方接口）为 {api_text}。"
         f"网页抽样通道为 {web_text}。"
-        "网页通道仍是未实现的浏览器 stub，只记录计划抽样，不能当成用户在网页或 App 里看到的结果。"
+        f"{web_state}"
         f"{percent_text}"
     )

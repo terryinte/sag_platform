@@ -180,6 +180,7 @@ class KeyContentCreate(BaseModel):
     title: str
     body: str = ""
     confirmed: bool = False
+    source: str = "manual"
 
 
 class ProjectProfileUpdate(BaseModel):
@@ -235,6 +236,8 @@ class ChannelUpdate(BaseModel):
     concurrency: int | None = None
     rate_limit_rpm: int | None = None
     budget_cap_usd: float | None = None
+    session_note: str | None = None
+    timeout_seconds: int | None = None
 
 
 class StrategyUpdate(BaseModel):
@@ -242,6 +245,10 @@ class StrategyUpdate(BaseModel):
     sample_count: int = 1
     cadence: str = "monthly"
     web_sample_percent: int = 15
+
+
+class SiteCrawlRequest(BaseModel):
+    url: str = ""
 
 
 class BudgetEstimateRequest(BaseModel):
@@ -291,3 +298,5 @@ class OutcomeCreate(BaseModel):
     after_value: float | None = None
     sample_n: int | None = None
     note: str = ""
+    before_run_id: int | None = None
+    after_run_id: int | None = None

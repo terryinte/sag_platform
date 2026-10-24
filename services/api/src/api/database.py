@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS project_key_contents (
     title TEXT NOT NULL,
     body TEXT NOT NULL DEFAULT '',
     confirmed INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -290,6 +291,15 @@ CREATE TABLE IF NOT EXISTS playbook_outcomes (
     delta REAL,
     sample_n INTEGER,
     note TEXT NOT NULL DEFAULT '',
+    before_run_id INTEGER,
+    after_run_id INTEGER,
+    before_k_rate REAL,
+    after_k_rate REAL,
+    before_d_rate REAL,
+    after_d_rate REAL,
+    before_first_rate REAL,
+    after_first_rate REAL,
+    success INTEGER,
     measured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -327,6 +337,8 @@ CREATE TABLE IF NOT EXISTS collection_channels (
     concurrency INTEGER NOT NULL DEFAULT 2,
     rate_limit_rpm INTEGER NOT NULL DEFAULT 30,
     budget_cap_usd REAL,
+    session_note TEXT NOT NULL DEFAULT '',
+    timeout_seconds INTEGER,
     last_status TEXT NOT NULL DEFAULT '',
     last_latency_ms INTEGER,
     last_error TEXT NOT NULL DEFAULT '',
@@ -378,6 +390,18 @@ class Database:
             self._ensure_column(connection, "geo_runs", "baseline_id", "INTEGER")
             self._ensure_column(connection, "geo_runs", "sample_count", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "geo_responses", "sample_index", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "project_key_contents", "source", "TEXT NOT NULL DEFAULT 'manual'")
+            self._ensure_column(connection, "collection_channels", "session_note", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "collection_channels", "timeout_seconds", "INTEGER")
+            self._ensure_column(connection, "playbook_outcomes", "before_run_id", "INTEGER")
+            self._ensure_column(connection, "playbook_outcomes", "after_run_id", "INTEGER")
+            self._ensure_column(connection, "playbook_outcomes", "before_k_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "after_k_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "before_d_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "after_d_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "before_first_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "after_first_rate", "REAL")
+            self._ensure_column(connection, "playbook_outcomes", "success", "INTEGER")
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:

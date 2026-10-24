@@ -791,6 +791,7 @@ def _format_number(value: float | int | None) -> str:
 
 def render_report_html(db: Database, project_id: int, report_id: int | None = None) -> str:
     from api.collection_settings import collection_method_note
+    from api.geo_platform import closed_loop_note
 
     project = get_project(db, project_id)
     commitments = list_commitments(db, project_id)
@@ -1063,7 +1064,7 @@ table {{ width:100%; border-collapse:collapse; margin:14px 0 24px; font-size:12p
   </div>
   <div class="note"><b>独立性声明：</b>测评结论仅依据本报告列明的第三方数据与留存证据；平台不把单次AI回答视为稳定排名，也不把不可归因数据强行计入服务商成果。</div>
   <h3>方法与局限</h3>
-  <p>D 类问题会直接点名品牌，只用来检查 AI 的描述是否准确，不能拿来计算自然发现率。K 类问题不点名品牌，提及率、推荐率和首位率只在这类问题上统计。分母只包含成功解析的样本，模拟结果、缺少密钥而跳过的调用、以及证据校验失败的样本会单独列出，不混进比率。推荐和首位必须能在原始回答里找到对应原句，而且同一条回答里只能有一个“唯一第一”。引擎返回的结构化引用才计入来源，正文里的普通链接不算。引用不代表来源正确，也不代表它对排序有因果作用。每题少数几次采样不能当成统计显著的结论。官方 API 打开联网搜索后的结果，和用户在网页或 App 里看到的结果不一定相同；浏览器采集尚未启用，报告里会分开标注通道。{html.escape(collection_method_note(db, project_id))}</p>
+  <p>D 类问题会直接点名品牌，只用来检查 AI 的描述是否准确，不能拿来计算自然发现率。K 类问题不点名品牌，提及率、推荐率和首位率只在这类问题上统计。分母只包含成功解析的样本，模拟结果、缺少密钥而跳过的调用、以及证据校验失败的样本会单独列出，不混进比率。推荐和首位必须能在原始回答里找到对应原句，而且同一条回答里只能有一个“唯一第一”。引擎返回的结构化引用才计入来源，正文里的普通链接不算。引用不代表来源正确，也不代表它对排序有因果作用。每题少数几次采样不能当成统计显著的结论。官方 API 打开联网搜索后的结果，和用户在网页或 App 里看到的结果不一定相同；报告会分开标注 API 通道和网页抽样。{html.escape(collection_method_note(db, project_id))}</p>
 
   <h2>四、SEO现状详细测评</h2>
   <h3>SEO 指标详细内容与时间序列</h3>
@@ -1086,6 +1087,7 @@ table {{ width:100%; border-collapse:collapse; margin:14px 0 24px; font-size:12p
   <h3>改进计划（引用建议库版本）</h3>
   <table><thead><tr><th>优先级</th><th>行动</th><th>来源建议</th><th>验收</th><th>状态</th></tr></thead><tbody>{plan_rows}</tbody></table>
   <p class="small">行动项绑定建议的具体版本。之后升级建议库不会改写已经写进本报告的版本号。</p>
+  <p>{html.escape(closed_loop_note(db, project_id))}</p>
   <h3>基于实测数据的优化建议</h3><div class="evidence-list">{''.join(f"<div class='evidence-item'><b>{html.escape(item['dimension'])} · {html.escape(item['title'])}</b><p>{html.escape(item['description'])}</p></div>" for item in assessment['recommendations']) or '<div class="empty">暂无待优化缺口。</div>'}</div>
   <h2>附录A：GEO原始回答与复核证据</h2>{geo_evidence}
   <h2>附录B：方法论与复现说明</h2><p>问题库按认知、比较、决策意图分层并版本化。同一客户跨期复测使用相同版本、同一平台和尽可能一致的模型及采样条件；如需调整，创建新版本并保留旧版本。原始回答不得被自动判定结果覆盖，人工修正须保留复核状态和备注。</p>

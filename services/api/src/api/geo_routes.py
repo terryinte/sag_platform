@@ -35,6 +35,7 @@ from api.geo_platform import (
     list_portfolio,
     list_revisions,
     project_sources,
+    project_trends,
     project_visibility,
     provider_env_from_settings,
     start_monitoring,
@@ -52,6 +53,7 @@ from api.mvp_models import (
     KeyContentCreate,
     MonitorRequest,
     OutcomeCreate,
+    SiteCrawlRequest,
     PlanActionCreate,
     PlaybookCreate,
     PlaybookVersionCreate,
@@ -60,6 +62,7 @@ from api.mvp_models import (
 )
 from api.mvp_service import get_project
 from api.settings import settings
+from api.site_crawl import crawl_project_site, crawl_site
 
 _STATIC = Path(__file__).parent / "geo_static"
 
@@ -203,6 +206,22 @@ def register_geo_routes(application: FastAPI, database: Database) -> None:
     @application.get("/api/projects/{project_id}/geo/sources")
     def geo_sources(project_id: int) -> dict:
         return project_sources(database, project_id)
+
+    @application.get("/api/projects/{project_id}/geo/trends")
+    def geo_trends(project_id: int) -> dict:
+        return project_trends(database, project_id)
+
+    @application.post("/api/geo/site-crawl")
+    def geo_site_crawl(payload: SiteCrawlRequest) -> dict:
+        return crawl_site(payload.url)
+
+    @application.post("/api/projects/{project_id}/site-crawl")
+    def geo_project_site_crawl(project_id: int, payload: SiteCrawlRequest) -> dict:
+        project = get_project(database, project_id)
+        target = (payload.url or project.get("domain") or "").strip()
+        if not target:
+            raise ValueError("项目没有官网地址")
+        return crawl_project_site(database, project_id, target)
 
     @application.get("/api/projects/{project_id}/geo/attempts")
     def geo_attempts(project_id: int, run_id: int | None = None) -> list[dict]:

@@ -23,7 +23,28 @@
 
 首页 `/` 是按项目交付的 GEO 工作台：客户列表、新建向导、配置、采集、可见度、引用来源、回答复核、改进计划和整改建议库。右侧用可关闭的标签打开页面；客户列表里的「看板」只打开该项目的可见度。原来的测评工作台仍在 `/workbench`，采集调试台在 `/console`。
 
-问题库分成 D 类（点名品牌，检查描述是否准确）和 K 类（中性品类问题，才计算提及、推荐和首位）。监测前会冻结配置快照和 `config_hash`。缺少密钥时对应通道记为模拟并跳过，不会让任务失败。浏览器采集（Playwright + Camoufox）只有接口，不会启动浏览器。调度只记录下次运行时间，没有常驻定时进程。
+问题库分成 D 类（点名品牌，检查描述是否准确）和 K 类（中性品类问题，才计算提及、推荐和首位）。监测前会冻结配置快照和 `config_hash`。缺少密钥时对应通道记为模拟并跳过，不会让任务失败。网页通道默认停用，只记录计划抽样；在「采集通道」里启用后，才按项目的「网页抽样」比例用浏览器采集核心问题（D 类，以及对比 / 替代 / 品牌意图）。调度只记录下次运行时间，没有常驻定时进程。
+
+## 浏览器采集（P1）
+
+默认是 Playwright 的无头 Chromium。Camoufox 可选：安装后设置 `GEO_BROWSER_ENGINE=camoufox`。导入或启动失败时自动回退到 Chromium，并在结果里记下 fallback。
+
+```bash
+./scripts/install-browser.sh
+# 等价于：
+python3 -m pip install -e "services/data-collectors[browser]"
+python3 -m playwright install chromium
+```
+
+代理（可选）：
+
+```bash
+export GEO_BROWSER_PROXY="http://127.0.0.1:7890"
+```
+
+未安装 Playwright，或浏览器启动失败时，该条尝试记为 `skipped` / `browser_unavailable`，整批采集继续。截图和页面 HTML 写到 `data/artifacts/{run_id}/`；截图失败只记在该条上，不让任务中断。网页通道的「会话备注」可以留下 Cookie JSON 或说明，测试和 CI 不会用它去登录网站。Google AI 概览、Google AI Mode、Copilot 仍是 stub，不会打开浏览器。
+
+官网补全从项目官网抓取首页和少量同站产品/关于页（深度不超过 2），写入 `source=site_crawl` 的关键内容，不删除手工行。看板只把 `config_hash` 相同的批次画成 K 提及、D 推荐和首位趋势。记录行动结果时要填写前后数值，或前后两次采集批次。
 
 可选的官方 API 密钥（都不写入代码）：
 
